@@ -67,6 +67,7 @@
     justify-content: center;
     padding: 6%;           /* tasteful margin inside the square */
     pointer-events: none;  /* clicks go to the square */
+    z-index: 10; /* make sure it's above the squares */
     }
 
     .piece-img {
@@ -157,8 +158,7 @@
     /* Minimal layout so Tailwind is not required */
     .container { max-width: 1080px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; grid-template-columns: 1fr 320px; }
     .card { background: rgba(30,41,59,0.4); border-radius: 16px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
-    .board { display: grid; grid-template-columns: repeat(8, 1fr); border: 4px solid #334155; border-radius: 12px; overflow: hidden; }
-    .btn { background:#334155; color:#e2e8f0; border:0; border-radius:10px; padding:8px 12px; cursor:pointer; }
+    .board { position: relative; display: grid; grid-template-columns: repeat(8, 1fr); border: 4px solid #334155; border-radius: 12px; overflow: hidden; }    .btn { background:#334155; color:#e2e8f0; border:0; border-radius:10px; padding:8px 12px; cursor:pointer; }
     .btn:hover { background:#475569; }
     .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
     .status { font-size: 14px; opacity: 0.9; }
@@ -256,6 +256,7 @@
             if (!dbz) {
               // Create a default mapping for this type if missing
               let char = 'grand_priest';
+              let maxForm = 0;
               if (p.type === 'k') char = 'zeno';
               else if (p.type === 'q') char = 'grand_priest';
               else if (p.type === 'r') char = 'goku';
@@ -266,7 +267,7 @@
                 char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman';
               }
               const { forms, formIdx } = clampForm(char, 0);
-              dbz = { id: `${p.color}_${char}_${Math.random().toString(36).slice(2,9)}`, color: p.color, char, life: 0, kills: 0, forms, formIdx };
+              dbz = { id: `${p.color}_${char}_${Math.random().toString(36).slice(2,9)}`, color: p.color, char, life: 0, kills: 0, forms, formIdx, maxForm };
               changed = true;
             } else {
               // Has roster entry; make sure its char is legal for this chess type
@@ -290,8 +291,12 @@
               } else {
                 // allowed char: just clamp forms in case assets changed
                 const { forms, formIdx } = clampForm(char, dbz.formIdx ?? 0);
-                if (forms !== dbz.forms || formIdx !== dbz.formIdx) {
-                  dbz = { ...dbz, forms, formIdx };
+                // keep/repair maxForm: never below current form, never above forms cap
+                let maxForm = dbz.maxForm ?? formIdx;
+                if (maxForm < formIdx) maxForm = formIdx;
+                if (maxForm > forms.length - 1) maxForm = forms.length - 1;
+                if (forms !== dbz.forms || formIdx !== dbz.formIdx || maxForm !== dbz.maxForm) {
+                  dbz = { ...dbz, forms, formIdx, maxForm };
                   changed = true;
                 }
               }
@@ -348,7 +353,7 @@
 
         function mk(color, char) {
           const forms = FORMS[char] ?? ['base'];
-          return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, kills: 0, formIdx: 0, forms };
+          return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms };
         }
       }
 
@@ -452,7 +457,10 @@
 
 
         function flashNotice(msg) { setToast(msg); setTimeout(() => setToast(null), 1200); }
-
+        function bumpMaxForm(state, newFormIdx) {
+          const nf = Math.max(newFormIdx, state.maxForm ?? state.formIdx ?? 0);
+          return { ...state, maxForm: nf };
+        }
         // --- Attack line (blue for current player / white, red for opponent / black) ---
         function drawAttackLine(move, attackerColor) {
         if (!trailRef.current) return;
@@ -580,7 +588,8 @@
           if (attempted.flags.includes('e')) {
             defenderSquare = attempted.color === 'w' ? to[0] + (parseInt(to[1]) - 1) : to[0] + (parseInt(to[1]) + 1);
           }
-
+          const moverStateBefore = roster.get(from);
+          const defenderStateBefore = roster.get(defenderSquare);
           if (!wasCapture) {
             // Handle castling (quiet move where chess.js moved king & rook on the board).
             // We must mirror the rook move inside our DBZ roster.
@@ -637,42 +646,58 @@
             refreshStatus(); maybeEngineTurn(); return;
           }
 
-          // Capture handling — check downgrade rule
-          const defenderState = roster.get(defenderSquare);
-          if (defenderState && defenderState.life > 0) {
+          // ATTACK path (there is a target on defenderSquare)
+          if (defenderStateBefore) {
+            // Always draw the beam
             drawAttackLine({ from, to: defenderSquare }, attempted.color);
-            const downgraded = { ...defenderState };
-            downgraded.life = Math.max(0, downgraded.life - 1);
-            downgraded.formIdx = Math.max(0, downgraded.formIdx - 1);
 
-            setRoster(prev => {
-              const m = new Map(prev);
-              m.set(defenderSquare, downgraded);
-              return m;
-            });
-            // Restore board to pre-move position but flip turn to the opponent.
-            const toggledFen = toggleTurnFen(beforeFEN, attempted.color);
-            const reverted = new Chess(toggledFen);
-            setGame(reverted);
+            // Always draw the beam, even if roster entry hasn't synced yet
+            drawAttackLine({ from, to: defenderSquare }, attempted.color);
 
-            flashNotice(`Downgrade! ${defenderState.char.toUpperCase()} loses a form — turn passes.`);
-            refreshStatus();
-            setTimeout(() => { if (!engineThinks) maybeEngineTurn(); }, 0);
-            return;
+            if (defenderStateBefore && (defenderStateBefore.formIdx ?? 0) > 0) {
+                // Downgrade defender form; positions unchanged; pass turn
+                const nextForm = Math.max(0, defenderStateBefore.formIdx - 1);
+                setRoster(prev => {
+                const curr = prev.get(defenderSquare);
+                if (!curr) return prev;
+                const m = new Map(prev);
+                m.set(defenderSquare, { ...curr, formIdx: nextForm });
+                return m;
+                });
+                const toggledFen = toggleTurnFen(beforeFEN, attempted.color);
+                const reverted = new Chess(toggledFen);
+                setGame(reverted);
+                flashNotice(`Hit! ${defenderStateBefore.char.toUpperCase()} level ↓`);
+                refreshStatus();
+                setTimeout(() => { if (!engineThinks) maybeEngineTurn(); }, 0);
+                return;
+            }
+        }
 
-          }
-
-          // Defender at base — proceed with capture, attacker upgrades
-          const moverState = roster.get(from);
+          const moverState = moverStateBefore;
+          const defenderState = defenderStateBefore;
           if (moverState) {
-            drawAttackLine({ from, to: defenderSquare }, attempted.color);
-            const boosted = { ...moverState };
-            const defenderKills = defenderState?.kills || 0;
-            boosted.life += defenderKills + 1; // opponent's kills + 1
-            boosted.kills = (boosted.kills || 0) + 1; // record this kill; 
-
-           if (boosted.formIdx < boosted.forms.length - 1) boosted.formIdx += 1;
-           if (isPromotion) { boosted.char = 'grand_priest'; boosted.forms = ['grand_priest']; boosted.formIdx = 0; }
+            let boosted = { ...moverState };
+            // Compute defender's original highest level for this life
+            const defenderOriginalLevel =
+              defenderState ? (defenderState.maxForm ?? defenderState.formIdx ?? 0) : 0;
+            // Attacker gains defenderOriginalLevel + 1 levels
+            const gain = defenderOriginalLevel + 1;
+            const newLevel = Math.min(
+              boosted.forms.length - 1,
+              (boosted.formIdx ?? 0) + gain
+            );
+            boosted.formIdx = newLevel;
+            boosted = bumpMaxForm(boosted, newLevel);
+            // keep old "kills/life" bookkeeping if you still want it visible
+            boosted.kills = (boosted.kills || 0) + 1;
+            boosted.life = (boosted.life || 0) + 1;
+            if (isPromotion) {
+              boosted.char = 'grand_priest';
+              boosted.forms = ['grand_priest'];
+              boosted.formIdx = 0;
+              boosted.maxForm = 0;
+            }
 
             setRoster(prev => {
             const m = new Map(prev);
@@ -879,10 +904,7 @@
             <div className="card">
               <div style={{fontSize:'20px', fontWeight:600, marginBottom:'12px'}}>DragonBall Chess</div>
               <div className="relative">
-                <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} />
-                <div className="overlay">
-                  <canvas ref={trailRef} />
-                </div>
+                <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} trailRef={trailRef} />
                 {engineThinks && (
                   <div
                     style={{
@@ -1028,32 +1050,35 @@
         );
       }
 
-      function Board({ game, roster, selected, legal, fog, onSquareClick }) {
+        function Board({ game, roster, selected, legal, fog, onSquareClick, trailRef }) {
         return (
-          <div className="board">
+            <div className="board" style={{ position: 'relative' }}>
             {RANKS.map((r, rIdx) =>
-              FILES.map((f, fIdx) => {
+                FILES.map((f, fIdx) => {
                 const sq = `${f}${r}`;
                 const dark = isDark(fIdx, rIdx);
                 const p = game.get(sq);
                 const dbz = roster.get(sq);
                 const isSel = selected === sq;
                 const isLegal = legal.has(sq);
-                const hide = fog && (
-                  (game.turn() === 'w' && r > 4 && (!p || p.color !== 'w')) ||
-                  (game.turn() === 'b' && r < 5 && (!p || p.color !== 'b'))
-                );
+                const hide =
+                    fog &&
+                    ((game.turn() === 'w' && r > 4 && (!p || p.color !== 'w')) ||
+                    (game.turn() === 'b' && r < 5 && (!p || p.color !== 'b')));
                 const teamClass = p ? (p.color === 'w' ? 'team-w' : 'team-b') : '';
+
                 return (
-                  <div
+                    <div
                     key={sq}
                     onClick={() => !hide && onSquareClick(sq)}
-                    className={`relative square flex items-center justify-center select-none ${hide ? 'cursor-not-allowed' : 'cursor-pointer'} ${dark ? 'dark' : 'light'} ${isSel ? 'highlight' : ''} ${teamClass}`}
-                    style={{position:'relative', display:'flex', alignItems:'center', justifyContent:'center'}}
-                  >
-                    {hide && <div className="absolute inset-0 mask" style={{position:'absolute', inset:0}}></div>}
-                    {isLegal && !p && !hide && <div className="absolute inset-0 legal-dot" style={{position:'absolute', inset:0}} />}
-                    {isLegal && p && !hide && <div className="absolute inset-0 capture-ring" style={{position:'absolute', inset:0}} />}
+                    className={`relative square flex items-center justify-center select-none ${
+                        hide ? 'cursor-not-allowed' : 'cursor-pointer'
+                    } ${dark ? 'dark' : 'light'} ${isSel ? 'highlight' : ''} ${teamClass}`}
+                    style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                    {hide && <div className="absolute inset-0 mask" style={{ position: 'absolute', inset: 0 }}></div>}
+                    {isLegal && !p && !hide && <div className="absolute inset-0 legal-dot" style={{ position: 'absolute', inset: 0 }} />}
+                    {isLegal && p && !hide && <div className="absolute inset-0 capture-ring" style={{ position: 'absolute', inset: 0 }} />}
 
                     {p && dbz && !hide && (
                         <>
@@ -1063,23 +1088,31 @@
                             className="piece-img"
                             draggable="false"
                             src={spriteUrl(dbz.char, dbz.forms[dbz.formIdx])}
-                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                            }}
                             alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`}
                             />
                         </div>
-                        <div className="piece-badge">
-                            {dbz.forms[dbz.formIdx]} · ❤{dbz.life}
-                        </div>
+                        <div className="piece-badge">{dbz.forms[dbz.formIdx]} · ❤{dbz.life}</div>
                         </>
-
                     )}
-                  </div>
+                    </div>
                 );
-              })
+                })
             )}
-          </div>
+
+            {/* Put the overlay AFTER the squares and force it above with z-index */}
+            <div
+                className="overlay"
+                aria-hidden="true"
+                style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 10 }}
+            >
+                <canvas ref={trailRef} />
+            </div>
+            </div>
         );
-      }
+        }
 
         // Safe mount with diagnostics
         window.__mountApp = function () {
