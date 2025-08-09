@@ -276,6 +276,7 @@
         const engineBuf = useRef([]);              // optional logs
         const pendingBest = useRef(null);
         const thinkWatchdog = useRef(null);
+        const engineBooting = useRef(false);       // re-entrancy guard
 
         function post(s) {
           try { engineRef.current?.postMessage(s); }
@@ -469,53 +470,63 @@
         }
 
         function bootEngine() {
-          // Reset old instance state
-          setEngineReady(false);
-          setEngineThinks(false);
-          pendingBest.current = null;
-          if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
-          engineBuf.current = [];
+        // Guard against re-entrancy while UCI init is in flight
+        if (engineBooting.current) return;
+        engineBooting.current = true;
 
-          // Create engine (prefer factory if exposed; fallback to Worker)
-          let eng = null;
-          try {
-            if (typeof window.STOCKFISH === 'function') {
-              eng = window.STOCKFISH();         // factory returns a worker-like object
-            } else {
-              eng = new Worker('vendor/lichess/stockfish-17-lite-single.js');
-            }
-          } catch (err) {
+        // Cleanly terminate any previous worker to avoid multiple WASM heaps
+        try { engineRef.current?.terminate?.(); } catch (_) {}
+        engineRef.current = null;
+
+        // Reset engine state
+        setEngineReady(false);
+        setEngineThinks(false);
+        pendingBest.current = null;
+        if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
+        engineBuf.current = [];
+
+        // Spawn Stockfish strictly as a WebWorker (no main-thread instance)
+        let eng = null;
+        try {
+            eng = new Worker('vendor/lichess/stockfish-17-lite-single.js');
+        } catch (err) {
             logEngine('ERR', `Engine spawn failed: ${err?.message || err}`);
+            engineBooting.current = false;
             return;
-          }
-          engineRef.current = eng;
+        }
+        engineRef.current = eng;
 
-          eng.onmessage = (e) => {
+        eng.onmessage = (e) => {
             const line = (typeof e.data === 'string') ? e.data : (e.data?.data ?? '');
             if (!line) return;
             engineBuf.current.push(line);
             logEngine('ENG', line);
 
             if (line === 'uciok') {
-              // single-thread build ignores Threads, but Hash & Elo are fine
-              post(`setoption name Hash value ${hashMB}`);
-              post('isready');
+            // single-thread build ignores Threads; Hash/Elo are fine
+            post(`setoption name Hash value ${hashMB}`);
+            post('isready');
             } else if (line === 'readyok') {
-              setEngineReady(true);
-              maybeEngineTurn();
+            setEngineReady(true);
+            engineBooting.current = false; // allow future restarts
+            maybeEngineTurn();
             } else if (line.startsWith('bestmove')) {
-              const uci = line.split(' ')[1];
-              pendingBest.current = uci;
-              setEngineThinks(false);
-              if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
-              applyBestMove();
+            const uci = line.split(' ')[1];
+            pendingBest.current = uci;
+            setEngineThinks(false);
+            if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
+            applyBestMove();
             }
-          };
+        };
 
-          // Kick off UCI
-          post('uci');
+        eng.onerror = (err) => {
+            logEngine('ERR', `Engine worker error: ${err?.message || err}`);
+            engineBooting.current = false;
+        };
+
+        // Kick off UCI handshake
+        post('uci');
         }
-        
         function applyStrengthFor(color) {
           const elo = color === 'w' ? eloW : eloB;
           if (!engineRef.current) return;
@@ -550,26 +561,32 @@
         doMove(from, to, prom);
         pendingBest.current = null;
 
-        if (mode === 'aivai' && !game.isGameOver()) {
-            setTimeout(enginePositionAndGo, 50);
+        const aivai = aiWhite && aiBlack;
+        if (aivai && !game.isGameOver()) {
+          setTimeout(enginePositionAndGo, 50);
         }
         }
 
         function maybeEngineTurn() {
           if (!isAiTurn()) return;
-          if (!engineRef.current || !engineReady) bootEngine();
-          else enginePositionAndGo();
+          // Boot once; if not ready yet, wait (do NOT spawn another)
+          if (!engineRef.current) { bootEngine(); return; }
+          if (!engineReady) { return; }
+          enginePositionAndGo();
         }
 
         // Reconfigure on difficulty/limits change
         useEffect(() => {
-        if (!engineRef.current) return;
-        bootEngine();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+          if (!engineRef.current) { bootEngine(); return; }
+          // Restart with new settings, but terminate the old worker first
+          bootEngine();
+          // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [depth, moveMs, threads, hashMB]);
-
         // If mode changes, possibly hand turn to engine
         useEffect(() => { maybeEngineTurn(); /* eslint-disable-next-line */ }, [aiWhite, aiBlack, game, roster]);
+        useEffect(() => {
+          return () => { try { engineRef.current?.terminate?.(); } catch (_) {} };
+        }, []);
         // ---- UI ----
         return (
           <div className="container">
