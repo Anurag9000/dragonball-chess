@@ -13,8 +13,6 @@
     // Tell the loader where the .wasm lives
     window.Module = { locateFile: p => 'vendor/lichess/' + p };
     </script>
-    <script src="vendor/lichess/stockfish-17-lite-single.js"></script>
-
     <style>
     #bootlog {
         position: fixed;
@@ -294,16 +292,34 @@
 
         function refreshStatus() {
         if (game.isGameOver()) {
-            if (game.isCheckmate()) setStatus(`Checkmate — ${game.turn() === 'w' ? 'Black' : 'White'} wins`);
-            else if (game.isStalemate()) setStatus('Stalemate');
-            else if (game.isDraw()) setStatus('Draw');
-            else setStatus('Game over');
-        } else {
-            const t = game.turn() === 'w' ? 'White' : 'Black';
-            const flags = [ game.isCheck() ? 'Check' : null ].filter(Boolean).join(' • ');
-            setStatus(`${t} to move${flags ? ' — ' + flags : ''}`);
+            // Status text
+            if (game.isCheckmate()) {
+            setStatus(`Checkmate — ${game.turn() === 'w' ? 'Black' : 'White'} wins`);
+            } else if (game.isStalemate()) {
+            setStatus('Stalemate');
+            } else if (game.isDraw()) {
+            setStatus('Draw');
+            } else {
+            setStatus('Game over');
+            }
+
+            // Cleanly stop / tear down engine once
+            try { post('stop'); } catch (_) {}
+            try { engineRef.current?.terminate?.(); } catch (_) {}
+            engineRef.current = null;
+            pendingBest.current = null;
+            setEngineThinks(false);
+            if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
+            setEngineReady(false);
+            return; // done
         }
+
+        // Not over: normal status
+        const t = game.turn() === 'w' ? 'White' : 'Black';
+        const flags = [ game.isCheck() ? 'Check' : null ].filter(Boolean).join(' • ');
+        setStatus(`${t} to move${flags ? ' — ' + flags : ''}`);
         }
+
 
         function flashNotice(msg) { setToast(msg); setTimeout(() => setToast(null), 1200); }
 
@@ -399,15 +415,29 @@
           if (!wasCapture) {
             // Handle promotion reskin if happened on a quiet move
             if (isPromotion) {
-              const mover = roster.get(from);
-              if (mover) {
-                const promoted = { ...mover, char: 'grand_priest', forms: ['grand_priest'], formIdx: 0 };
-                const newRoster = new Map(roster);
-                newRoster.delete(from); newRoster.set(to, promoted); setRoster(newRoster);
-                const moverChar = mover.char; if (moverChar === 'goku' || moverChar === 'vegeta') drawTrail({from, to}, moverChar);
-                refreshStatus(); maybeEngineTurn(); return;
-              }
+            const moverChar = roster.get(from)?.char; // capture before state change
+            setRoster(prev => {
+                const moverPrev = prev.get(from);
+                if (!moverPrev) return prev;
+                const promoted = {
+                ...moverPrev,
+                char: 'grand_priest',
+                forms: ['grand_priest'],
+                formIdx: 0,
+                };
+                const m = new Map(prev);
+                m.delete(from);
+                m.set(to, promoted);
+                return m;
+            });
+            if (moverChar === 'goku' || moverChar === 'vegeta') {
+                drawTrail({ from, to }, moverChar);
             }
+            refreshStatus();
+            setTimeout(maybeEngineTurn, 0); // avoid racing this update
+            return;
+            }
+
             // Regular quiet move
             syncRosterOnMove(from, to);
             refreshStatus(); maybeEngineTurn(); return;
@@ -421,17 +451,20 @@
             downgraded.life = Math.max(0, downgraded.life - 1);
             downgraded.formIdx = Math.max(0, downgraded.formIdx - 1);
 
-            const newRoster = new Map(roster);
-            newRoster.set(defenderSquare, downgraded);
-            setRoster(newRoster);
-
+            setRoster(prev => {
+              const m = new Map(prev);
+              m.set(defenderSquare, downgraded);
+              return m;
+            });
             // Restore board to pre-move position but flip turn to the opponent.
             const toggledFen = toggleTurnFen(beforeFEN, attempted.color);
             const reverted = new Chess(toggledFen);
             setGame(reverted);
 
             flashNotice(`Downgrade! ${defenderState.char.toUpperCase()} loses a form — turn passes.`);
-            refreshStatus(); maybeEngineTurn(); return;
+            refreshStatus();
+            setTimeout(() => { if (!engineThinks) maybeEngineTurn(); }, 0);
+            return;
 
           }
 
@@ -447,10 +480,12 @@
            if (boosted.formIdx < boosted.forms.length - 1) boosted.formIdx += 1;
            if (isPromotion) { boosted.char = 'grand_priest'; boosted.forms = ['grand_priest']; boosted.formIdx = 0; }
 
-            const newRoster = new Map(roster);
-            newRoster.delete(from); newRoster.set(to, boosted);
-            if (attempted.flags.includes('e')) newRoster.delete(defenderSquare);
-            setRoster(newRoster);
+            setRoster(prev => {
+            const m = new Map(prev);
+            m.delete(from); m.set(to, boosted);
+            if (attempted.flags.includes('e')) m.delete(defenderSquare);
+            return m;
+            });
           } else {
             syncRosterOnMove(from, to);
           }
@@ -459,10 +494,13 @@
         }
 
         function syncRosterOnMove(from, to) {
-          const st = roster.get(from); if (!st) return;
-          const newRoster = new Map(roster); newRoster.delete(from); newRoster.set(to, st); setRoster(newRoster);
+          setRoster(prev => {
+            const st = prev.get(from); if (!st) return prev;
+            const m = new Map(prev);
+            m.delete(from); m.set(to, st);
+            return m;
+          });
         }
-
         // ---------- ENGINE WIRING ----------
         function isAiTurn() {
           const t = game.turn();
@@ -511,17 +549,33 @@
             engineBooting.current = false; // allow future restarts
             maybeEngineTurn();
             } else if (line.startsWith('bestmove')) {
-            const uci = line.split(' ')[1];
-            pendingBest.current = uci;
+            const parts = line.trim().split(/\s+/);
+            const uci = parts[1];
             setEngineThinks(false);
             if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
+
+            // End of game: engine reports no legal move
+            if (!uci || uci === '(none)' || uci === '0000') {
+                pendingBest.current = null;
+                refreshStatus();    // will show checkmate/stalemate/draw
+                return;
+            }
+
+            pendingBest.current = uci;
             applyBestMove();
             }
+
         };
 
         eng.onerror = (err) => {
             logEngine('ERR', `Engine worker error: ${err?.message || err}`);
             engineBooting.current = false;
+            // Try a clean restart next tick
+            try { engineRef.current?.terminate?.(); } catch (_) {}
+            engineRef.current = null;
+            setEngineReady(false);
+            setEngineThinks(false);
+            setTimeout(() => bootEngine(), 50);
         };
 
         // Kick off UCI handshake
@@ -539,8 +593,21 @@
 
         function enginePositionAndGo() {
           if (!engineRef.current || !engineReady) return;
+          if (engineThinks) return; // don’t overlap searches
+          // Think only for the side to move that is AI-controlled
+          const t = game.turn();
+          if ((t === 'w' && !aiWhite) || (t === 'b' && !aiBlack)) return;
+          // Always send a STOP to clear any previous analysis safely
+          post('stop');
+
           const fen = game.fen();
-          applyStrengthFor(game.turn());
+          applyStrengthFor(t);
+
+          // Keep memory light before starting search
+          post(`setoption name Hash value ${Math.max(1, Math.min(hashMB, 32))}`); // cap at 32MB
+          // Optional: flip NNUE off for low-RAM devices
+          // post('setoption name Use NNUE value false');
+
           post(`position fen ${fen}`);
           if (moveMs && moveMs > 0) {
             post(`go movetime ${moveMs}`);
@@ -551,28 +618,40 @@
         }
 
         function applyBestMove() {
-        const uci = pendingBest.current;
-        if (!uci) return;
+          const uci = pendingBest.current;
+          if (!uci || game.isGameOver()) return;
 
-        const from = uci.slice(0, 2);
-        const to   = uci.slice(2, 4);
-        const prom = uci.length > 4 ? uci[4] : undefined;
+          const from = uci.slice(0, 2);
+          const to   = uci.slice(2, 4);
+          const prom = uci.length > 4 ? uci[4] : undefined;
 
-        doMove(from, to, prom);
-        pendingBest.current = null;
+          // Sanity: only apply if still legal in the current position
+          const legalNow = game.moves({ verbose: true }).some(m =>
+            m.from === from && m.to === to && (!m.promotion || m.promotion === prom)
+          );
+          if (!legalNow) {
+            console.warn('[DBZ] Desync: engine suggested illegal move', uci, 'for', game.fen());
+            pendingBest.current = null;
+            setEngineThinks(false);
+            setTimeout(enginePositionAndGo, 0); // re-sync and think again
+            return;
+          }
 
-        const aivai = aiWhite && aiBlack;
-        if (aivai && !game.isGameOver()) {
-          setTimeout(enginePositionAndGo, 50);
-        }
+          doMove(from, to, prom);
+          pendingBest.current = null;
+
+          const aivai = aiWhite && aiBlack;
+          if (aivai && !game.isGameOver()) {
+            setTimeout(enginePositionAndGo, 50);
+          }
         }
 
         function maybeEngineTurn() {
           if (!isAiTurn()) return;
-          // Boot once; if not ready yet, wait (do NOT spawn another)
           if (!engineRef.current) { bootEngine(); return; }
-          if (!engineReady) { return; }
-          enginePositionAndGo();
+          if (!engineReady) return;
+          // Only trigger a new search if we’re idle
+          if (!engineThinks) enginePositionAndGo();
         }
 
         // Reconfigure on difficulty/limits change
