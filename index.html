@@ -91,18 +91,19 @@
 
       // DBZ forms (expand later with sprites)
       const FORMS = {
-        goku: ['base','kaioken','ssj','ssj2','ssj3','ssg','ssb','ui','mui'],
-        vegeta: ['base','ssj','ssj2','ssb','ultra_ego'],
+        goku: ['base', 'kaioken', 'ssj','ssj2','ssj3', 'ssj4', 'ssg', 'ssb', 'ssb_kaioken', 'ui','mui'],
+        vegeta: ['base','great_ape', 'ssj','ssj2','ssj3', 'ssj4', 'ssg', 'ssb', 'ssb_evolved', 'ultra_ego'],
         zeno: ['zeno'],
         whis: ['angel'],
         grand_priest: ['grand_priest'],
         piccolo: ['base','potential','orange'],
-        krillin: ['base','kaioken','ssj'],
-        yamcha: ['base','wolf_fang','ssj'],
-        tien: ['base','tri_beam','neo_tri_beam'],
-        chiaotzu: ['base','psychic'],
-        saibaman: ['base','acid','explode'],
-        gohan_kid: ['base','ssj','ssj2']
+        krillin: ['base'],
+        yamcha: ['base'],
+        tien: ['base'],
+        chiaotzu: ['base'],
+        saibaman: ['base'],
+        gohan_kid: ['base','ssj','ssj2', 'ssj3', 'mystic', 'beast'],
+        gotenks: ['base','ssj', 'ssj2', 'ssj3'],
       };
 
       function spriteUrl(char, formKey) { return `assets/pieces/${char}/${formKey}.png`; }
@@ -139,7 +140,7 @@
 
         function mk(color, char) {
           const forms = FORMS[char] ?? ['base'];
-          return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, formIdx: 0, forms };
+          return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, kills: 0, formIdx: 0, forms };
         }
       }
 
@@ -288,8 +289,13 @@
           const moverState = roster.get(from);
           if (moverState) {
             const boosted = { ...moverState };
-            boosted.life += 1; if (boosted.formIdx < boosted.forms.length - 1) boosted.formIdx += 1;
-            if (isPromotion) { boosted.char = 'grand_priest'; boosted.forms = ['grand_priest']; boosted.formIdx = 0; }
+            const defenderKills = defenderState?.kills || 0;
+            boosted.life += defenderKills + 1; // opponent's kills + 1
+            boosted.kills = (boosted.kills || 0) + 1; // record this kill; 
+
+           if (boosted.formIdx < boosted.forms.length - 1) boosted.formIdx += 1;
+           if (isPromotion) { boosted.char = 'grand_priest'; boosted.forms = ['grand_priest']; boosted.formIdx = 0; }
+
             const newRoster = new Map(roster);
             newRoster.delete(from); newRoster.set(to, boosted);
             if (attempted.flags.includes('e')) newRoster.delete(defenderSquare);
