@@ -413,6 +413,34 @@
           }
 
           if (!wasCapture) {
+            // Handle castling (quiet move where chess.js moved king & rook on the board).
+            // We must mirror the rook move inside our DBZ roster.
+            if (attempted.flags.includes('k') || attempted.flags.includes('q')) {
+              const isWhite = attempted.color === 'w';
+              const isKingSide = attempted.flags.includes('k');
+
+              const rookFrom = isKingSide
+                  ? (isWhite ? 'h1' : 'h8')
+                  : (isWhite ? 'a1' : 'a8');
+              const rookTo = isKingSide
+                  ? (isWhite ? 'f1' : 'f8')
+                  : (isWhite ? 'd1' : 'd8');
+
+              setRoster(prev => {
+                  const m = new Map(prev);
+                  // move king in roster
+                  const king = m.get(from);
+                  if (king) { m.delete(from); m.set(to, king); }
+                  // move rook in roster
+                  const rook = m.get(rookFrom);
+                  if (rook) { m.delete(rookFrom); m.set(rookTo, rook); }
+                  return m;
+              });
+              refreshStatus();
+              setTimeout(maybeEngineTurn, 0);
+              return;
+            }
+
             // Handle promotion reskin if happened on a quiet move
             if (isPromotion) {
             const moverChar = roster.get(from)?.char; // capture before state change
