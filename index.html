@@ -256,8 +256,22 @@
 
         // DBZ-aware undo
         const historyRef = useRef([]); // stack of { fenBefore, rosterBefore }
+        // --------- AI / Stockfish state ----------
+        const [aiWhite, setAiWhite] = useState(false);
+        const [aiBlack, setAiBlack] = useState(false);
+        const [eloW, setEloW] = useState(1350);    // White engine strength
+        const [eloB, setEloB] = useState(1350);    // Black engine strength
+        const [depth, setDepth] = useState(14);    // fallback depth cap
+        const [moveMs, setMoveMs] = useState(800); // think time per move
+        const [threads, setThreads] = useState(1); // NNUE single build ignores >1
+        const [hashMB, setHashMB] = useState(16);
+        const [engineReady, setEngineReady] = useState(false);
+        const [engineThinks, setEngineThinks] = useState(false);
+        const engineRef = useRef(null);            // Worker
+        const engineBuf = useRef([]);              // optional logs
+        const pendingBest = useRef(null);
 
-        useEffect(() => { refreshStatus(); }, []);
+        useEffect(() => { refreshStatus(); maybeEngineTurn();}, []);
 
         function refreshStatus() {
         if (game.isGameOver()) {
@@ -372,12 +386,12 @@
                 const newRoster = new Map(roster);
                 newRoster.delete(from); newRoster.set(to, promoted); setRoster(newRoster);
                 const moverChar = mover.char; if (moverChar === 'goku' || moverChar === 'vegeta') drawTrail({from, to}, moverChar);
-                refreshStatus(); return;
+                refreshStatus(); maybeEngineTurn(); return;
               }
             }
             // Regular quiet move
             syncRosterOnMove(from, to);
-            refreshStatus(); return;
+            refreshStatus(); maybeEngineTurn(); return;
           }
 
           // Capture handling — check downgrade rule
@@ -398,8 +412,7 @@
             setGame(reverted);
 
             flashNotice(`Downgrade! ${defenderState.char.toUpperCase()} loses a form — turn passes.`);
-            refreshStatus();
-            return;
+            refreshStatus(); maybeEngineTurn(); return;
 
           }
 
@@ -423,7 +436,7 @@
             syncRosterOnMove(from, to);
           }
           flashNotice('Power up!');
-          refreshStatus();
+          refreshStatus(); maybeEngineTurn();
         }
 
         function syncRosterOnMove(from, to) {
@@ -431,6 +444,112 @@
           const newRoster = new Map(roster); newRoster.delete(from); newRoster.set(to, st); setRoster(newRoster);
         }
 
+        // ---------- ENGINE WIRING ----------
+        function isAiTurn() {
+          const t = game.turn();
+          return (t === 'w' && aiWhite) || (t === 'b' && aiBlack);
+        }
+
+        function bootEngine() {
+        // Close old
+        if (engineRef.current) {
+            try { engineRef.current.terminate(); } catch(_) {}
+        }
+        setEngineReady(false);
+        setEngineThinks(false);
+        pendingBest.current = null;
+
+        // Pick a compact single-threaded build that works without CORS gymnastics
+        const workerURL = 'https://unpkg.com/stockfish@17.0.0/src/stockfish-nnue-17-lite-single.js';
+        const w = new Worker(workerURL);
+        engineRef.current = w;
+
+        w.onmessage = (e) => {
+            const line = (typeof e.data === 'string') ? e.data : (e.data?.data ?? '');
+            if (!line) return;
+
+            engineBuf.current.push(line);
+
+            if (line === 'uciok') {
+            // Send options after uci handshake
+            post(`setoption name Threads value ${threads}`);
+            post(`setoption name Hash value ${hashMB}`);
+            post('isready');
+            } else if (line === 'readyok') {
+            setEngineReady(true);
+            maybeEngineTurn();
+            } else if (line.startsWith('bestmove')) {
+            const parts = line.split(' ');
+            const uci = parts[1]; // e.g., e2e4, e7e8q
+            pendingBest.current = uci;
+            setEngineThinks(false);
+            applyBestMove();
+            }
+        };
+
+        // Start UCI
+        post('uci');
+
+        function post(s) {
+            try { w.postMessage(s); }
+            catch (e) { console.error('Engine post fail', e); }
+        }
+        }
+
+        function applyStrengthFor(color) {
+          const elo = color === 'w' ? eloW : eloB;
+          if (!engineRef.current) return;
+          engineRef.current.postMessage(`setoption name UCI_LimitStrength value true`);
+          engineRef.current.postMessage(`setoption name UCI_Elo value ${elo}`);
+          // Fallback skill level mapping (some builds still accept it)
+          const skill = Math.min(20, Math.max(0, Math.round((elo - 800) / 100)));
+          engineRef.current.postMessage(`setoption name Skill Level value ${skill}`);
+        }
+
+        function enginePositionAndGo() {
+        if (!engineRef.current || !engineReady) return;
+        const fen = game.fen();
+        applyStrengthFor(game.turn());
+        engineRef.current.postMessage(`position fen ${fen}`);
+        if (moveMs && moveMs > 0) {
+            engineRef.current.postMessage(`go movetime ${moveMs}`);
+        } else {
+            engineRef.current.postMessage(`go depth ${depth}`);
+        }
+        setEngineThinks(true);
+        }
+
+        function applyBestMove() {
+        const uci = pendingBest.current;
+        if (!uci) return;
+
+        const from = uci.slice(0, 2);
+        const to   = uci.slice(2, 4);
+        const prom = uci.length > 4 ? uci[4] : undefined;
+
+        doMove(from, to, prom);
+        pendingBest.current = null;
+
+        if (mode === 'aivai' && !game.isGameOver()) {
+            setTimeout(enginePositionAndGo, 50);
+        }
+        }
+
+        function maybeEngineTurn() {
+        if (!isAiTurn()) return;
+        if (!engineRef.current || !engineReady) bootEngine();
+        else enginePositionAndGo();
+        }
+
+        // Reconfigure on difficulty/limits change
+        useEffect(() => {
+        if (!engineRef.current) return;
+        bootEngine();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [depth, moveMs, threads, hashMB]);
+
+        // If mode changes, possibly hand turn to engine
+        useEffect(() => { maybeEngineTurn(); /* eslint-disable-next-line */ }, [aiWhite, aiBlack, game, roster]);
         // ---- UI ----
         return (
           <div className="container">
@@ -441,54 +560,101 @@
                 <div style={{position:'absolute', inset:0, pointerEvents:'none'}}>
                   <canvas ref={trailRef} className="w-full h-full pointer-events-none" />
                 </div>
+                {engineThinks && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '8px',
+                      background: 'rgba(2,6,23,0.7)',
+                      padding: '6px 10px',
+                      borderRadius: '10px',
+                      fontSize: '12px'
+                    }}
+                  >
+                    Stockfish thinking…
+                  </div>
+                )}
+
               </div>
               <div className="row" style={{marginTop:'16px', justifyContent:'space-between'}}>
                 <div className="status">{status}</div>
                 <div className="row">
-                  <button className="btn" onClick={() => { const g = new Chess(); setGame(g); setRoster(initialRoster()); setSelected(null); setLegal(new Set()); historyRef.current = []; refreshStatus(); }}>Restart</button>
-                  <button className="btn" onClick={() => { if (!popHistory()) return; refreshStatus(); }}>Undo</button>
+                  <button className="btn" onClick={() => { const g = new Chess(); setGame(g); setRoster(initialRoster()); setSelected(null); setLegal(new Set()); historyRef.current = []; refreshStatus(); maybeEngineTurn(); }}>Restart</button>
+                  <button className="btn" onClick={() => { if (!popHistory()) return; refreshStatus(); maybeEngineTurn();}}>Undo</button>
                   <button className="btn" onClick={() => setFog(f => !f)}>{fog ? 'Fog: ON' : 'Fog: OFF'}</button>
                 </div>
               </div>
             </div>
 
             <aside className="stack">
-              <Panel title="Turn / State">
+            <Panel title="Engine / Sides">
+                <div className="row" style={{ alignItems: 'center' }}>
+                <label style={{ fontSize: 12, opacity: 0.9, width: 90 }}>AI as White</label>
+                <input type="checkbox" checked={aiWhite} onChange={e => setAiWhite(e.target.checked)} />
+                <input type="range" min="800" max="2800" step="50" value={eloW} onChange={e => setEloW(parseInt(e.target.value))} />
+                <div style={{ fontSize: 12, width: 54, textAlign: 'right' }}>{eloW}</div>
+                </div>
+                <div className="row" style={{ alignItems: 'center' }}>
+                <label style={{ fontSize: 12, opacity: 0.9, width: 90 }}>AI as Black</label>
+                <input type="checkbox" checked={aiBlack} onChange={e => setAiBlack(e.target.checked)} />
+                <input type="range" min="800" max="2800" step="50" value={eloB} onChange={e => setEloB(parseInt(e.target.value))} />
+                <div style={{ fontSize: 12, width: 54, textAlign: 'right' }}>{eloB}</div>
+                </div>
+                <div className="row" style={{ marginTop: 8 }}>
+                <label style={{ fontSize: 12, opacity: 0.9 }}>Time (ms)</label>
+                <input type="number" className="btn" style={{ width: 100 }} value={moveMs} onChange={e => setMoveMs(parseInt(e.target.value) || 0)} />
+                <label style={{ fontSize: 12, opacity: 0.9 }}>Depth</label>
+                <input type="number" className="btn" style={{ width: 72 }} value={depth} onChange={e => setDepth(Math.max(1, parseInt(e.target.value) || 1))} />
+                </div>
+                <div className="row">
+                <label style={{ fontSize: 12, opacity: 0.9 }}>Threads</label>
+                <input type="number" className="btn" style={{ width: 64 }} value={threads} onChange={e => setThreads(Math.max(1, parseInt(e.target.value) || 1))} />
+                <label style={{ fontSize: 12, opacity: 0.9 }}>Hash MB</label>
+                <input type="number" className="btn" style={{ width: 64 }} value={hashMB} onChange={e => setHashMB(Math.max(1, parseInt(e.target.value) || 1))} />
+                <button className="btn" onClick={bootEngine} disabled={engineThinks}>Reload Engine</button>
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
+                Tip: use separate Elo sliders per side. Set Time=0 for fixed-depth play.
+                </div>
+            </Panel>
+
+            <Panel title="Turn / State">
                 <div className="text-sm leading-relaxed">
-                  <div><b>Side:</b> {game.turn() === 'w' ? 'White' : 'Black'}</div>
-                  <div><b>Check:</b> {game.isCheck() ? 'Yes' : 'No'}</div>
-                  <div><b>Stalemate:</b> {game.isStalemate() ? 'Yes' : 'No'}</div>
-                  <div><b>Castling Rights:</b> <code style={{fontSize:'12px'}}>{game.fen().split(' ')[2]}</code></div>
-                  <div><b>En Passant:</b> <code style={{fontSize:'12px'}}>{game.fen().split(' ')[3]}</code></div>
+                <div><b>Side:</b> {game.turn() === 'w' ? 'White' : 'Black'}</div>
+                <div><b>Check:</b> {game.isCheck() ? 'Yes' : 'No'}</div>
+                <div><b>Stalemate:</b> {game.isStalemate() ? 'Yes' : 'No'}</div>
+                <div><b>Castling Rights:</b> <code style={{ fontSize: '12px' }}>{game.fen().split(' ')[2]}</code></div>
+                <div><b>En Passant:</b> <code style={{ fontSize: '12px' }}>{game.fen().split(' ')[3]}</code></div>
                 </div>
-              </Panel>
+            </Panel>
 
-              <Panel title="DBZ Rules (active)">
-                <ul style={{paddingLeft:'18px', fontSize:'14px', lineHeight:1.5}}>
-                  <li>On kill: attacker <b>life+1</b> & transforms.</li>
-                  <li>On hit when defender has life &gt; 0: defender <b>life-1</b>, positions unchanged, <b>turn passes to the opponent</b>.</li>
-                  <li>Base defender on hit: captured normally.</li>
-                  <li>Back rank mapping:</li>
-                  <li style={{marginLeft:'8px'}}>Rooks = <b>Goku</b> & <b>Vegeta</b></li>
-                  <li style={{marginLeft:'8px'}}>Knights = <b>Gohan Kid</b> & <b>Frieza</b></li>
-                  <li style={{marginLeft:'8px'}}>Bishops = <b>Majin Boo</b> & <b>Gotenks</b></li>
-                  <li style={{marginLeft:'8px'}}>Queen = <b>Grand Priest</b>, King = <b>Zeno</b></li>
-                  <li>Pawns = Saibaman, Chiaotzu, Krillin, Tien, Whis, Yamcha, Piccolo, Android 18.</li>
-                  <li>Promotions become <b>Grand Priest</b>.</li>
+            <Panel title="DBZ Rules (active)">
+                <ul style={{ paddingLeft: '18px', fontSize: '14px', lineHeight: 1.5 }}>
+                <li>On kill: attacker <b>life+1</b> & transforms.</li>
+                <li>On hit when defender has life &gt; 0: defender <b>life-1</b>, positions unchanged, <b>turn passes to the opponent</b>.</li>
+                <li>Base defender on hit: captured normally.</li>
+                <li>Back rank mapping:</li>
+                <li style={{ marginLeft: '8px' }}>Rooks = <b>Goku</b> & <b>Vegeta</b></li>
+                <li style={{ marginLeft: '8px' }}>Knights = <b>Gohan Kid</b> & <b>Frieza</b></li>
+                <li style={{ marginLeft: '8px' }}>Bishops = <b>Majin Boo</b> & <b>Gotenks</b></li>
+                <li style={{ marginLeft: '8px' }}>Queen = <b>Grand Priest</b>, King = <b>Zeno</b></li>
+                <li>Pawns = Saibaman, Chiaotzu, Krillin, Tien, Whis, Yamcha, Piccolo, Android 18.</li>
+                <li>Promotions become <b>Grand Priest</b>.</li>
                 </ul>
-              </Panel>
+            </Panel>
 
-              <Panel title="Assets">
-                <div style={{fontSize:'12px', opacity:0.9}}>
-                  Place sprites as PNGs:
-                  <pre style={{marginTop:'8px', background:'#0b1220', padding:'8px', borderRadius:'8px'}}>assets/pieces/goku/base.png, kaioken.png, ssj.png, ...
-assets/pieces/vegeta/base.png, ssj.png, ssj2.png, ssb.png, ultra_ego.png
-assets/pieces/zeno/zeno.png
-assets/pieces/grand_priest/grand_priest.png
-... (others optional)</pre>
-                  Missing sprites simply hide the image.
+            <Panel title="Assets">
+                <div style={{ fontSize: '12px', opacity: 0.9 }}>
+                Place sprites as PNGs:
+                <pre style={{ marginTop: '8px', background: '#0b1220', padding: '8px', borderRadius: '8px' }}>assets/pieces/goku/base.png, kaioken.png, ssj.png, ...
+            assets/pieces/vegeta/base.png, ssj.png, ssj2.png, ssb.png, ultra_ego.png
+            assets/pieces/zeno/zeno.png
+            assets/pieces/grand_priest/grand_priest.png
+            ... (others optional)</pre>
+                Missing sprites simply hide the image.
                 </div>
-              </Panel>
+            </Panel>
             </aside>
 
             {toast && (
