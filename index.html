@@ -270,6 +270,14 @@
         const engineRef = useRef(null);            // Worker
         const engineBuf = useRef([]);              // optional logs
         const pendingBest = useRef(null);
+        const thinkWatchdog = useRef(null);
+
+        function logEngine(side, text) {
+          const line = `[${new Date().toLocaleTimeString()}] ${side}: ${text}`;
+          engineBuf.current.push(line);
+          if (engineBuf.current.length > 60) engineBuf.current.splice(0, engineBuf.current.length - 60);
+          __log(text);
+        }
 
         useEffect(() => { refreshStatus(); maybeEngineTurn();}, []);
 
@@ -458,17 +466,25 @@
         setEngineReady(false);
         setEngineThinks(false);
         pendingBest.current = null;
+        if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
+        engineBuf.current = [];
+
 
         // Pick a compact single-threaded build that works without CORS gymnastics
         const workerURL = 'https://unpkg.com/stockfish@17.0.0/src/stockfish-nnue-17-lite-single.js';
         const w = new Worker(workerURL);
         engineRef.current = w;
 
+          w.onerror = (e) => {
+            logEngine('ERR', `Worker error: ${e.message || e.filename || 'unknown'}`);
+          };
+
         w.onmessage = (e) => {
             const line = (typeof e.data === 'string') ? e.data : (e.data?.data ?? '');
             if (!line) return;
 
             engineBuf.current.push(line);
+            logEngine('ENG', line);
 
             if (line === 'uciok') {
             // Send options after uci handshake
@@ -483,6 +499,7 @@
             const uci = parts[1]; // e.g., e2e4, e7e8q
             pendingBest.current = uci;
             setEngineThinks(false);
+            if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
             applyBestMove();
             }
         };
@@ -588,6 +605,16 @@
             </div>
 
             <aside className="stack">
+            <Panel title="Engine Log">
+              <div style={{fontSize:12, maxHeight:180, overflow:'auto', background:'#0b1220', padding:8, borderRadius:8}}>
+                {(engineBuf.current || []).map((l,i) => <div key={i} style={{whiteSpace:'pre-wrap'}}>{l}</div>)}
+              </div>
+              <div style={{fontSize:12, opacity:.9, marginTop:6}}>
+                Ready: <b>{String(engineReady)}</b> · Thinking: <b>{String(engineThinks)}</b><br/>
+                FEN: <code style={{fontSize:11}}>{game.fen()}</code>
+              </div>
+            </Panel>
+
             <Panel title="Engine / Sides">
                 <div className="row" style={{ alignItems: 'center' }}>
                 <label style={{ fontSize: 12, opacity: 0.9, width: 90 }}>AI as White</label>
