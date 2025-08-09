@@ -9,6 +9,11 @@
   <script src="vendor/react.development.js"></script>
   <script src="vendor/react-dom.development.js"></script>
   <script src="vendor/babel.min.js"></script>
+    <script>
+    // Tell the loader where the .wasm lives
+    window.Module = { locateFile: p => 'vendor/lichess/' + p };
+    </script>
+    <script src="vendor/lichess/stockfish-17-lite-single.js"></script>
 
     <style>
     #bootlog {
@@ -267,10 +272,15 @@
         const [hashMB, setHashMB] = useState(16);
         const [engineReady, setEngineReady] = useState(false);
         const [engineThinks, setEngineThinks] = useState(false);
-        const engineRef = useRef(null);            // Worker
+        const engineRef = useRef(null);            // Lichess Stockfish instance
         const engineBuf = useRef([]);              // optional logs
         const pendingBest = useRef(null);
         const thinkWatchdog = useRef(null);
+
+        function post(s) {
+          try { engineRef.current?.postMessage(s); }
+          catch (e) { logEngine('ERR', `post fail: ${e?.message || e}`); }
+        }
 
         function logEngine(side, text) {
           const line = `[${new Date().toLocaleTimeString()}] ${side}: ${text}`;
@@ -459,81 +469,74 @@
         }
 
         function bootEngine() {
-        // Close old
-        if (engineRef.current) {
-            try { engineRef.current.terminate(); } catch(_) {}
-        }
-        setEngineReady(false);
-        setEngineThinks(false);
-        pendingBest.current = null;
-        if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
-        engineBuf.current = [];
+          // Reset old instance state
+          setEngineReady(false);
+          setEngineThinks(false);
+          pendingBest.current = null;
+          if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
+          engineBuf.current = [];
 
+          // Create engine (prefer factory if exposed; fallback to Worker)
+          let eng = null;
+          try {
+            if (typeof window.STOCKFISH === 'function') {
+              eng = window.STOCKFISH();         // factory returns a worker-like object
+            } else {
+              eng = new Worker('vendor/lichess/stockfish-17-lite-single.js');
+            }
+          } catch (err) {
+            logEngine('ERR', `Engine spawn failed: ${err?.message || err}`);
+            return;
+          }
+          engineRef.current = eng;
 
-        // Pick a compact single-threaded build that works without CORS gymnastics
-        const workerURL = 'https://unpkg.com/stockfish@17.0.0/src/stockfish-nnue-17-lite-single.js';
-        const w = new Worker(workerURL);
-        engineRef.current = w;
-
-          w.onerror = (e) => {
-            logEngine('ERR', `Worker error: ${e.message || e.filename || 'unknown'}`);
-          };
-
-        w.onmessage = (e) => {
+          eng.onmessage = (e) => {
             const line = (typeof e.data === 'string') ? e.data : (e.data?.data ?? '');
             if (!line) return;
-
             engineBuf.current.push(line);
             logEngine('ENG', line);
 
             if (line === 'uciok') {
-            // Send options after uci handshake
-            post(`setoption name Threads value ${threads}`);
-            post(`setoption name Hash value ${hashMB}`);
-            post('isready');
+              // single-thread build ignores Threads, but Hash & Elo are fine
+              post(`setoption name Hash value ${hashMB}`);
+              post('isready');
             } else if (line === 'readyok') {
-            setEngineReady(true);
-            maybeEngineTurn();
+              setEngineReady(true);
+              maybeEngineTurn();
             } else if (line.startsWith('bestmove')) {
-            const parts = line.split(' ');
-            const uci = parts[1]; // e.g., e2e4, e7e8q
-            pendingBest.current = uci;
-            setEngineThinks(false);
-            if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
-            applyBestMove();
+              const uci = line.split(' ')[1];
+              pendingBest.current = uci;
+              setEngineThinks(false);
+              if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
+              applyBestMove();
             }
-        };
+          };
 
-        // Start UCI
-        post('uci');
-
-        function post(s) {
-            try { w.postMessage(s); }
-            catch (e) { console.error('Engine post fail', e); }
+          // Kick off UCI
+          post('uci');
         }
-        }
-
+        
         function applyStrengthFor(color) {
           const elo = color === 'w' ? eloW : eloB;
           if (!engineRef.current) return;
-          engineRef.current.postMessage(`setoption name UCI_LimitStrength value true`);
-          engineRef.current.postMessage(`setoption name UCI_Elo value ${elo}`);
+          post(`setoption name UCI_LimitStrength value true`);
+          post(`setoption name UCI_Elo value ${elo}`);
           // Fallback skill level mapping (some builds still accept it)
           const skill = Math.min(20, Math.max(0, Math.round((elo - 800) / 100)));
-          engineRef.current.postMessage(`setoption name Skill Level value ${skill}`);
+          post(`setoption name Skill Level value ${skill}`);
         }
 
         function enginePositionAndGo() {
-        if (!engineRef.current || !engineReady) return;
-        const fen = game.fen();
-        applyStrengthFor(game.turn());
-        engineRef.current.postMessage(`position fen ${fen}`);
-        if (moveMs && moveMs > 0) {
-            engineRef.current.postMessage(`go movetime ${moveMs}`);
-        } else {
-            engineRef.current.postMessage(`go depth ${depth}`);
-        }
-        setEngineThinks(true);
+          if (!engineRef.current || !engineReady) return;
+          const fen = game.fen();
+          applyStrengthFor(game.turn());
+          post(`position fen ${fen}`);
+          if (moveMs && moveMs > 0) {
+            post(`go movetime ${moveMs}`);
+          } else {
+            post(`go depth ${depth}`);
+          }
+          setEngineThinks(true);
         }
 
         function applyBestMove() {
@@ -553,9 +556,9 @@
         }
 
         function maybeEngineTurn() {
-        if (!isAiTurn()) return;
-        if (!engineRef.current || !engineReady) bootEngine();
-        else enginePositionAndGo();
+          if (!isAiTurn()) return;
+          if (!engineRef.current || !engineReady) bootEngine();
+          else enginePositionAndGo();
         }
 
         // Reconfigure on difficulty/limits change
