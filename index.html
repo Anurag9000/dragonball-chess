@@ -77,6 +77,11 @@
     display: block;
     }
 
+    /* Tailwind's .relative isn't available here; define it */
+    .relative {
+      position: relative;
+    }
+
     .piece-badge {
     position: absolute;
     left: 0;
@@ -158,6 +163,18 @@
     .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
     .status { font-size: 14px; opacity: 0.9; }
     .stack { display:grid; gap:16px; }
+    /* Overlay canvas that truly fills the board (no Tailwind needed) */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .overlay > canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
   </style>
 </head>
 <body>
@@ -197,6 +214,99 @@
       };
 
       function spriteUrl(char, formKey) { return `assets/pieces/${char}/${formKey}.png`; }
+
+      // --- Strict mapping guards: which chess piece is which DBZ character ---
+      // Allowed characters per chess TYPE (k,q,r,b,n,p)
+      const TYPE_ALLOWED = {
+        k: new Set(['zeno']),
+        q: new Set(['grand_priest']),
+        r: new Set(['goku','vegeta']),
+        b: new Set(['majin_boo','gotenks']),
+        n: new Set(['gohan_kid','frieza']),
+        p: new Set(['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']),
+      };
+
+      const PAWN_FILES_DEFAULT = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']; // a..h
+
+      function clampForm(char, formIdx) {
+        const forms = FORMS[char] ?? ['base'];
+        const idx = Math.min(Math.max(0, formIdx|0), forms.length - 1);
+        return { forms, formIdx: idx };
+      }
+
+      /**
+       * Normalize/repair the DBZ roster so every chess piece type strictly maps to
+       * its allowed DBZ character set. Keeps life/kills; fixes char & forms if needed.
+       * Returns [normalizedMap, changed:boolean]
+       */
+      function ensureMappingStrict(chess, rosterMap) {
+        const out = new Map();
+        let changed = false;
+
+        // 1) Pass: for every board square with a piece, ensure a valid roster entry
+        for (const f of FILES) {
+          for (const r of RANKS) {
+            const sq = `${f}${r}`;
+            const p = chess.get(sq);
+            if (!p) continue;
+
+            const allowed = TYPE_ALLOWED[p.type] || new Set();
+            let dbz = rosterMap.get(sq);
+
+            if (!dbz) {
+              // Create a default mapping for this type if missing
+              let char = 'grand_priest';
+              if (p.type === 'k') char = 'zeno';
+              else if (p.type === 'q') char = 'grand_priest';
+              else if (p.type === 'r') char = 'goku';
+              else if (p.type === 'b') char = 'majin_boo';
+              else if (p.type === 'n') char = 'gohan_kid';
+              else if (p.type === 'p') {
+                const fileIdx = FILES.indexOf(f);
+                char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman';
+              }
+              const { forms, formIdx } = clampForm(char, 0);
+              dbz = { id: `${p.color}_${char}_${Math.random().toString(36).slice(2,9)}`, color: p.color, char, life: 0, kills: 0, forms, formIdx };
+              changed = true;
+            } else {
+              // Has roster entry; make sure its char is legal for this chess type
+              let char = dbz.char;
+              if (!allowed.has(char)) {
+                // Force to the canonical character of that type, preserving life/kills
+                if (p.type === 'k') char = 'zeno';
+                else if (p.type === 'q') char = 'grand_priest';
+                else if (p.type === 'r') char = ['goku','vegeta'].includes(dbz.char) ? dbz.char : 'goku';
+                else if (p.type === 'b') char = ['majin_boo','gotenks'].includes(dbz.char) ? dbz.char : 'majin_boo';
+                else if (p.type === 'n') char = ['gohan_kid','frieza'].includes(dbz.char) ? dbz.char : 'gohan_kid';
+                else if (p.type === 'p') {
+                  if (!TYPE_ALLOWED.p.has(char)) {
+                    const fileIdx = FILES.indexOf(f);
+                    char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman';
+                  }
+                }
+                const { forms, formIdx } = clampForm(char, dbz.formIdx ?? 0);
+                dbz = { ...dbz, char, forms, formIdx };
+                changed = true;
+              } else {
+                // allowed char: just clamp forms in case assets changed
+                const { forms, formIdx } = clampForm(char, dbz.formIdx ?? 0);
+                if (forms !== dbz.forms || formIdx !== dbz.formIdx) {
+                  dbz = { ...dbz, forms, formIdx };
+                  changed = true;
+                }
+              }
+              // Keep color in sync with chess piece color (safety)
+              if (dbz.color !== p.color) { dbz = { ...dbz, color: p.color }; changed = true; }
+            }
+            out.set(sq, dbz);
+          }
+        }
+
+        // 2) Any roster entries that no longer have a chess piece at that square are dropped.
+        // (implicit by rebuilding 'out' from the board)
+
+        return [out, changed];
+      }
 
       function initialRoster() {
         const m = new Map(); // square -> PieceState
@@ -256,18 +366,36 @@
         const [toast, setToast] = useState(null);
         const [fog, setFog] = useState(false);
         const trailRef = useRef(null);
+        // Normalize guards: run after every position change to enforce strict mapping
+        useEffect(() => {
+          // Delay one tick to allow pending roster setState to land, then normalize
+          const t = setTimeout(() => {
+            setRoster(prev => {
+              const [norm, changed] = ensureMappingStrict(game, prev);
+              if (changed) __log('Roster normalized to strict mapping');
+              return changed ? norm : prev;
+            });
+          }, 0);
+          return () => clearTimeout(t);
+        }, [game]); // whenever the chess position changes
+
+        // Also enforce once on boot
+        useEffect(() => { setRoster(prev => ensureMappingStrict(game, prev)[0]); }, []);
 
         // DBZ-aware undo
         const historyRef = useRef([]); // stack of { fenBefore, rosterBefore }
         // --------- AI / Stockfish state ----------
         const [aiWhite, setAiWhite] = useState(false);
         const [aiBlack, setAiBlack] = useState(false);
-        const [eloW, setEloW] = useState(1350);    // White engine strength
-        const [eloB, setEloB] = useState(1350);    // Black engine strength
-        const [depth, setDepth] = useState(14);    // fallback depth cap
-        const [moveMs, setMoveMs] = useState(800); // think time per move
-        const [threads, setThreads] = useState(1); // NNUE single build ignores >1
-        const [hashMB, setHashMB] = useState(16);
+        // Single Hardness selector that maps to Elo & timing
+        const [hardness, setHardness] = useState('Normal'); // 'Easy' | 'Normal' | 'Hard' | 'Insane'
+        function hardnessProfile(h) {
+          if (h === 'Easy')   return { elo: 1000, movetime: 500, depth: 8,  hash: 8 };
+          if (h === 'Hard')   return { elo: 2000, movetime: 900, depth: 16, hash: 16 };
+          if (h === 'Insane') return { elo: 2600, movetime: 1300, depth: 22, hash: 32 };
+          return              { elo: 1500, movetime: 700, depth: 12, hash: 12 }; // Normal
+        }
+
         const [engineReady, setEngineReady] = useState(false);
         const [engineThinks, setEngineThinks] = useState(false);
         const engineRef = useRef(null);            // Lichess Stockfish instance
@@ -275,6 +403,8 @@
         const pendingBest = useRef(null);
         const thinkWatchdog = useRef(null);
         const engineBooting = useRef(false);       // re-entrancy guard
+        const [capturedByWhite, setCapturedByWhite] = useState([]); // pieces White captured (types)
+        const [capturedByBlack, setCapturedByBlack] = useState([]); // pieces Black captured
 
         function post(s) {
           try { engineRef.current?.postMessage(s); }
@@ -325,29 +455,63 @@
 
         // --- Attack line (blue for current player / white, red for opponent / black) ---
         function drawAttackLine(move, attackerColor) {
-          if (!trailRef.current) return;
-          const canvas = trailRef.current;
-          const ctx = canvas.getContext('2d');
-          const size = canvas.clientWidth;
-          const dpr = window.devicePixelRatio || 1;
-          canvas.width = size * dpr; canvas.height = size * dpr; ctx.scale(dpr, dpr);
-          ctx.clearRect(0,0,size,size);
-          const fromFile = FILES.indexOf(move.from[0]);
-          const fromRank = 8 - parseInt(move.from[1]);
-          const toFile = FILES.indexOf(move.to[0]);
-          const toRank = 8 - parseInt(move.to[1]);
-          const sqSize = size / 8;
-          // Blue for "my" attack (white), Red for "enemy" attack (black)
-          ctx.strokeStyle = attackerColor === 'w' ? '#38bdf8' : '#ef4444';
-          ctx.lineWidth = 6;
-          ctx.lineCap = 'round';
-          ctx.shadowColor = ctx.strokeStyle;
-          ctx.shadowBlur = 12;
-          ctx.beginPath();
-          ctx.moveTo(fromFile * sqSize + sqSize/2, fromRank * sqSize + sqSize/2);
-          ctx.lineTo(toFile * sqSize + sqSize/2, toRank * sqSize + sqSize/2);
-          ctx.stroke();
-          setTimeout(() => { ctx.clearRect(0,0,size,size); }, 700);
+        if (!trailRef.current) return;
+
+        const canvas = trailRef.current;
+        const rect = canvas.getBoundingClientRect(); // actual drawn area
+        const w = rect.width;
+        const h = rect.height;
+
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width  = Math.max(1, Math.round(w * dpr));
+        canvas.height = Math.max(1, Math.round(h * dpr));
+
+        const ctx = canvas.getContext('2d');
+        // 1 CSS pixel == 1 unit in our math
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+
+          // Account for the board's CSS border (4px in your stylesheet)
+          const border = 4;
+          const innerW = Math.max(0, w - border * 2);
+          const innerH = Math.max(0, h - border * 2);
+
+          // Board may not be perfectly square inside the card; derive per-axis sizes
+          const sqW = innerW / 8;
+          const sqH = innerH / 8;
+
+        const fromFile = FILES.indexOf(move.from[0]);
+        const fromRank = 8 - parseInt(move.from[1], 10);
+        const toFile   = FILES.indexOf(move.to[0]);
+        const toRank   = 8 - parseInt(move.to[1], 10);
+
+        const cx = f => border + f * sqW + sqW / 2;
+        const cy = r => border + r * sqH + sqH / 2;
+
+        ctx.strokeStyle = attackerColor === 'w' ? '#38bdf8' : '#ef4444';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = ctx.strokeStyle;
+        ctx.shadowBlur = 12;
+
+        ctx.beginPath();
+        ctx.moveTo(cx(fromFile), cy(fromRank));
+        ctx.lineTo(cx(toFile),   cy(toRank));
+        ctx.stroke();
+
+        setTimeout(() => { ctx.clearRect(0, 0, w, h); }, 700);
+        }
+
+        // --- Material / Captures helpers (traditional values, K excluded) ---
+        const PIECE_VALUE = { p:1, n:3, b:3, r:5, q:9 };
+        function materialScore(game) {
+          let w = 0, b = 0;
+          for (const row of game.board()) for (const cell of row) {
+            if (!cell) continue;
+            const v = PIECE_VALUE[cell.type] || 0;
+            if (cell.color === 'w') w += v; else b += v;
+          }
+          return { w, b, diff: w - b };
         }
 
         // --- History helpers ---
@@ -357,8 +521,13 @@
         function popHistory() {
           const entry = historyRef.current.pop();
           if (!entry) return false;
-          setGame(new Chess(entry.fenBefore));
-          setRoster(entry.rosterBefore);
+          // Restore then normalize to guarantee strict mapping
+          const g = new Chess(entry.fenBefore);
+          const [norm] = ensureMappingStrict(g, entry.rosterBefore);
+          setGame(g);
+          setRoster(norm);
+          setCapturedByWhite([]);
+          setCapturedByBlack([]);
           setSelected(null); setLegal(new Set());
           return true;
         }
@@ -458,9 +627,6 @@
                 m.set(to, promoted);
                 return m;
             });
-            if (moverChar === 'goku' || moverChar === 'vegeta') {
-                drawTrail({ from, to }, moverChar);
-            }
             refreshStatus();
             setTimeout(maybeEngineTurn, 0); // avoid racing this update
             return;
@@ -514,6 +680,16 @@
             if (attempted.flags.includes('e')) m.delete(defenderSquare);
             return m;
             });
+            // Update capture lists (who gained what)
+            const capType = attempted.captured || (attempted.flags.includes('e') ? 'p' : null);
+            if (capType) {
+              if (attempted.color === 'w') {
+                setCapturedByWhite(prev => [...prev, capType]);
+              } else {
+                setCapturedByBlack(prev => [...prev, capType]);
+              }
+            }
+
           } else {
             syncRosterOnMove(from, to);
           }
@@ -570,7 +746,8 @@
 
             if (line === 'uciok') {
             // single-thread build ignores Threads; Hash/Elo are fine
-            post(`setoption name Hash value ${hashMB}`);
+            const prof = hardnessProfile(hardness);
+            post(`setoption name Hash value ${Math.max(1, Math.min(prof.hash, 32))}`);
             post('isready');
             } else if (line === 'readyok') {
             setEngineReady(true);
@@ -610,7 +787,8 @@
         post('uci');
         }
         function applyStrengthFor(color) {
-          const elo = color === 'w' ? eloW : eloB;
+          const prof = hardnessProfile(hardness);
+          const elo = prof.elo;
           if (!engineRef.current) return;
           post(`setoption name UCI_LimitStrength value true`);
           post(`setoption name UCI_Elo value ${elo}`);
@@ -632,15 +810,16 @@
           applyStrengthFor(t);
 
           // Keep memory light before starting search
-          post(`setoption name Hash value ${Math.max(1, Math.min(hashMB, 32))}`); // cap at 32MB
+          const prof = hardnessProfile(hardness);
+          post(`setoption name Hash value ${Math.max(1, Math.min(prof.hash, 32))}`);
           // Optional: flip NNUE off for low-RAM devices
           // post('setoption name Use NNUE value false');
 
           post(`position fen ${fen}`);
-          if (moveMs && moveMs > 0) {
-            post(`go movetime ${moveMs}`);
+          if (prof.movetime && prof.movetime > 0) {
+            post(`go movetime ${prof.movetime}`);
           } else {
-            post(`go depth ${depth}`);
+            post(`go depth ${prof.depth}`);
           }
           setEngineThinks(true);
         }
@@ -688,7 +867,7 @@
           // Restart with new settings, but terminate the old worker first
           bootEngine();
           // eslint-disable-next-line react-hooks/exhaustive-deps
-        }, [depth, moveMs, threads, hashMB]);
+        }, [hardness]);
         // If mode changes, possibly hand turn to engine
         useEffect(() => { maybeEngineTurn(); /* eslint-disable-next-line */ }, [aiWhite, aiBlack, game, roster]);
         useEffect(() => {
@@ -701,8 +880,8 @@
               <div style={{fontSize:'20px', fontWeight:600, marginBottom:'12px'}}>DragonBall Chess</div>
               <div className="relative">
                 <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} />
-                <div style={{position:'absolute', inset:0, pointerEvents:'none'}}>
-                  <canvas ref={trailRef} className="w-full h-full pointer-events-none" />
+                <div className="overlay">
+                  <canvas ref={trailRef} />
                 </div>
                 {engineThinks && (
                   <div
@@ -724,9 +903,21 @@
               <div className="row" style={{marginTop:'16px', justifyContent:'space-between'}}>
                 <div className="status">{status}</div>
                 <div className="row">
-                  <button className="btn" onClick={() => { const g = new Chess(); setGame(g); setRoster(initialRoster()); setSelected(null); setLegal(new Set()); historyRef.current = []; refreshStatus(); maybeEngineTurn(); }}>Restart</button>
-                  <button className="btn" onClick={() => { if (!popHistory()) return; refreshStatus(); maybeEngineTurn();}}>Undo</button>
+                  <button className="btn" onClick={() => {
+                    const g = new Chess();
+                    setGame(g); setRoster(initialRoster());
+                    setSelected(null); setLegal(new Set());
+                    setCapturedByWhite([]); setCapturedByBlack([]);
+                    historyRef.current = []; refreshStatus(); maybeEngineTurn();
+                  }}>Restart</button>
                   <button className="btn" onClick={() => setFog(f => !f)}>{fog ? 'Fog: ON' : 'Fog: OFF'}</button>
+                  <button className="btn" onClick={() => {
+                    if (!popHistory()) return;
+                    // mapping normalized by the [game] effect
+                    refreshStatus();
+                    maybeEngineTurn();
+                  }}>Undo</button>
+
                 </div>
               </div>
             </div>
@@ -742,35 +933,43 @@
               </div>
             </Panel>
 
-            <Panel title="Engine / Sides">
-                <div className="row" style={{ alignItems: 'center' }}>
+            <Panel title="Score & Captures">
+              {(() => {
+                const ms = materialScore(game);
+                const pieceGlyph = t => ({p:'♙',n:'♘',b:'♗',r:'♖',q:'♕'}[t] || t);
+                return (
+                  <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+                    <div><b>Material</b> — White: {ms.w} • Black: {ms.b} • Diff: {ms.diff > 0 ? `+${ms.diff}` : ms.diff}</div>
+                    <div className="row"><b>White gained:</b>&nbsp;{capturedByWhite.length ? capturedByWhite.map((t,i)=><span key={i} style={{marginRight:6}}>{pieceGlyph(t)}</span>) : <i>—</i>}</div>
+                    <div className="row"><b>Black gained:</b>&nbsp;{capturedByBlack.length ? capturedByBlack.map((t,i)=><span key={i} style={{marginRight:6}}>{pieceGlyph(t)}</span>) : <i>—</i>}</div>
+                  </div>
+                );
+              })()}
+            </Panel>
+
+            <Panel title="Engine">
+              <div className="row" style={{ alignItems: 'center' }}>
                 <label style={{ fontSize: 12, opacity: 0.9, width: 90 }}>AI as White</label>
                 <input type="checkbox" checked={aiWhite} onChange={e => setAiWhite(e.target.checked)} />
-                <input type="range" min="800" max="2800" step="50" value={eloW} onChange={e => setEloW(parseInt(e.target.value))} />
-                <div style={{ fontSize: 12, width: 54, textAlign: 'right' }}>{eloW}</div>
-                </div>
-                <div className="row" style={{ alignItems: 'center' }}>
+              </div>
+              <div className="row" style={{ alignItems: 'center' }}>
                 <label style={{ fontSize: 12, opacity: 0.9, width: 90 }}>AI as Black</label>
                 <input type="checkbox" checked={aiBlack} onChange={e => setAiBlack(e.target.checked)} />
-                <input type="range" min="800" max="2800" step="50" value={eloB} onChange={e => setEloB(parseInt(e.target.value))} />
-                <div style={{ fontSize: 12, width: 54, textAlign: 'right' }}>{eloB}</div>
-                </div>
-                <div className="row" style={{ marginTop: 8 }}>
-                <label style={{ fontSize: 12, opacity: 0.9 }}>Time (ms)</label>
-                <input type="number" className="btn" style={{ width: 100 }} value={moveMs} onChange={e => setMoveMs(parseInt(e.target.value) || 0)} />
-                <label style={{ fontSize: 12, opacity: 0.9 }}>Depth</label>
-                <input type="number" className="btn" style={{ width: 72 }} value={depth} onChange={e => setDepth(Math.max(1, parseInt(e.target.value) || 1))} />
-                </div>
-                <div className="row">
-                <label style={{ fontSize: 12, opacity: 0.9 }}>Threads</label>
-                <input type="number" className="btn" style={{ width: 64 }} value={threads} onChange={e => setThreads(Math.max(1, parseInt(e.target.value) || 1))} />
-                <label style={{ fontSize: 12, opacity: 0.9 }}>Hash MB</label>
-                <input type="number" className="btn" style={{ width: 64 }} value={hashMB} onChange={e => setHashMB(Math.max(1, parseInt(e.target.value) || 1))} />
-                <button className="btn" onClick={bootEngine} disabled={engineThinks}>Reload Engine</button>
-                </div>
-                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
-                Tip: use separate Elo sliders per side. Set Time=0 for fixed-depth play.
-                </div>
+              </div>
+              <div className="row" style={{ alignItems: 'center', marginTop: 8 }}>
+                <label style={{ fontSize: 12, opacity: 0.9, width: 90 }}>Hardness</label>
+                <select className="btn" value={hardness} onChange={e => setHardness(e.target.value)}>
+                  <option>Easy</option>
+                  <option>Normal</option>
+                  <option>Hard</option>
+                  <option>Insane</option>
+                </select>
+                <button className="btn" onClick={bootEngine} disabled={engineThinks} style={{ marginLeft: 8 }}>Apply</button>
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
+                Engine strength & think time auto-tuned by Hardness.
+              </div>
+
             </Panel>
 
             <Panel title="Turn / State">
