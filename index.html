@@ -244,6 +244,7 @@
           const attempted = game.move({ from, to, promotion: promotion || 'q' });
           if (!attempted) { setGame(new Chess(game.fen())); historyRef.current.pop(); return; }
           const wasCapture = !!attempted.captured || attempted.flags.includes('e');
+          const isPromotion = !!attempted.promotion;
 
           // En passant defender square
           let defenderSquare = to;
@@ -253,7 +254,7 @@
 
           if (!wasCapture) {
             // Handle promotion reskin if happened on a quiet move
-            if (attempted.flags.includes('p')) {
+            if (isPromotion) {
               const mover = roster.get(from);
               if (mover) {
                 const promoted = { ...mover, char: 'grand_priest', forms: ['grand_priest'], formIdx: 0 };
@@ -288,7 +289,7 @@
           if (moverState) {
             const boosted = { ...moverState };
             boosted.life += 1; if (boosted.formIdx < boosted.forms.length - 1) boosted.formIdx += 1;
-            if (attempted.flags.includes('p')) { boosted.char = 'grand_priest'; boosted.forms = ['grand_priest']; boosted.formIdx = 0; }
+            if (isPromotion) { boosted.char = 'grand_priest'; boosted.forms = ['grand_priest']; boosted.formIdx = 0; }
             const newRoster = new Map(roster);
             newRoster.delete(from); newRoster.set(to, boosted);
             if (attempted.flags.includes('e')) newRoster.delete(defenderSquare);
@@ -313,7 +314,7 @@
               <div style={{fontSize:'20px', fontWeight:600, marginBottom:'12px'}}>DragonBall Chess — Local 2P</div>
               <div className="relative">
                 <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} />
-                <div style={{position:'absolute', inset:0}}>
+                <div style={{position:'absolute', inset:0, pointerEvents:'none'}}>
                   <canvas ref={trailRef} className="w-full h-full pointer-events-none" />
                 </div>
               </div>
