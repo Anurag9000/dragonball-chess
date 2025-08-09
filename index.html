@@ -44,7 +44,7 @@
   <style>
     html, body { height: 100%; }
     body { margin: 0; background: #0f172a; color: #e2e8f0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
-    .square { aspect-ratio: 1 / 1; }
+    .square { aspect-ratio: 1 / 1; position: relative; }
     .light { background: #f0d9b5; }
     .dark { background: #b58863; }
     .highlight { outline: 3px solid rgba(255, 230, 0, 0.8); outline-offset: -3px; }
@@ -55,7 +55,36 @@
       content: ""; position: absolute; inset: 6px; border: 3px solid rgba(220,38,38,0.85); border-radius: 8px;
     }
     .mask { background: rgba(2,6,23,0.78); }
-    .piece-img { width: 76%; height: 76%; object-fit: contain; user-select: none; }
+    /* Piece rendering: fill the square and keep label as overlay, so layout never stretches the square */
+    .piece-layer {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6%;           /* tasteful margin inside the square */
+    pointer-events: none;  /* clicks go to the square */
+    }
+
+    .piece-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    user-select: none;
+    display: block;
+    }
+
+    .piece-badge {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 4px;
+    text-align: center;
+    font-size: 12px;
+    color: rgba(226, 232, 240, 0.9);
+    pointer-events: none;
+    }
+
     .pulse { animation: pulseScale 320ms ease-out; }
     @keyframes pulseScale {
       0% { transform: scale(0.82); opacity: 0.65; filter: saturate(0.6) brightness(1.1); }
@@ -101,6 +130,9 @@
         yamcha: ['base'],
         tien: ['base'],
         chiaotzu: ['base'],
+        android_18: ['base'],
+        majin_boo: ['fat','evil','super','buutenks','buuccolo','buuhan','kid_buu'],
+        frieza: ['1','2','3','final','mecha','golden','black'],
         saibaman: ['base'],
         gohan_kid: ['base','ssj','ssj2', 'ssj3', 'mystic', 'beast'],
         gotenks: ['base','ssj', 'ssj2', 'ssj3'],
@@ -110,32 +142,40 @@
 
       function initialRoster() {
         const m = new Map(); // square -> PieceState
-        // White back rank
-        m.set('a1', mk('w','goku'));
-        m.set('b1', mk('w','tien'));
-        m.set('c1', mk('w','vegeta'));
-        m.set('d1', mk('w','whis'));
-        m.set('e1', mk('w','zeno'));
-        m.set('f1', mk('w','vegeta'));
-        m.set('g1', mk('w','yamcha'));
-        m.set('h1', mk('w','goku'));
-        // White pawns
-        const whitePawns = ['a2','b2','c2','d2','e2','f2','g2','h2'];
-        const whiteChars = ['saibaman','krillin','tien','gohan_kid','chiaotzu','yamcha','saibaman','krillin'];
-        whitePawns.forEach((sq, i) => m.set(sq, mk('w', whiteChars[i])));
-        // Black back rank
-        m.set('a8', mk('b','goku'));
-        m.set('b8', mk('b','tien'));
-        m.set('c8', mk('b','vegeta'));
-        m.set('d8', mk('b','whis'));
-        m.set('e8', mk('b','zeno'));
-        m.set('f8', mk('b','vegeta'));
-        m.set('g8', mk('b','yamcha'));
-        m.set('h8', mk('b','goku'));
-        // Black pawns
-        const blackPawns = ['a7','b7','c7','d7','e7','f7','g7','h7'];
-        const blackChars = ['saibaman','krillin','tien','gohan_kid','chiaotzu','yamcha','saibaman','krillin'];
-        blackPawns.forEach((sq, i) => m.set(sq, mk('b', blackChars[i])));
+        // White back rank (a1..h1):
+        // R: Goku, N: Gohan Kid, B: Majin Boo, Q: Grand Priest, K: Zeno, B: Gotenks, N: Frieza, R: Vegeta
+        m.set('a1', mk('w','goku'));         // rook
+        m.set('b1', mk('w','gohan_kid'));    // knight
+        m.set('c1', mk('w','majin_boo'));    // bishop
+        m.set('d1', mk('w','grand_priest')); // queen
+        m.set('e1', mk('w','zeno'));         // king
+        m.set('f1', mk('w','gotenks'));      // bishop
+        m.set('g1', mk('w','frieza'));       // knight
+        m.set('h1', mk('w','vegeta'));       // rook
+
+        // White pawns (a2..h2):
+        // Saibaman, Chiaotzu, Krillin, Tien, Whis, Yamcha, Piccolo, Android 18
+        ['a2','b2','c2','d2','e2','f2','g2','h2'].forEach((sq, i) => {
+        const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18'];
+        m.set(sq, mk('w', order[i]));
+        });
+
+        // Black back rank (a8..h8) mirrored with same mapping
+        m.set('a8', mk('b','goku'));         // rook
+        m.set('b8', mk('b','gohan_kid'));    // knight
+        m.set('c8', mk('b','majin_boo'));    // bishop
+        m.set('d8', mk('b','grand_priest')); // queen
+        m.set('e8', mk('b','zeno'));         // king
+        m.set('f8', mk('b','gotenks'));      // bishop
+        m.set('g8', mk('b','frieza'));       // knight
+        m.set('h8', mk('b','vegeta'));       // rook
+
+        // Black pawns (a7..h7) same order as white
+        ['a7','b7','c7','d7','e7','f7','g7','h7'].forEach((sq, i) => {
+        const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18'];
+        m.set(sq, mk('b', order[i]));
+        });
+
         return m;
 
         function mk(color, char) {
@@ -179,8 +219,8 @@
 
         function flashNotice(msg) { setToast(msg); setTimeout(() => setToast(null), 1200); }
 
-        // --- Trails ---
-        function drawTrail(move, char) {
+        // --- Attack line (blue for current player / white, red for opponent / black) ---
+        function drawAttackLine(move, attackerColor) {
           if (!trailRef.current) return;
           const canvas = trailRef.current;
           const ctx = canvas.getContext('2d');
@@ -193,13 +233,17 @@
           const toFile = FILES.indexOf(move.to[0]);
           const toRank = 8 - parseInt(move.to[1]);
           const sqSize = size / 8;
-          ctx.strokeStyle = char === 'goku' ? '#38bdf8' : '#a855f7';
-          ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 12;
+          // Blue for "my" attack (white), Red for "enemy" attack (black)
+          ctx.strokeStyle = attackerColor === 'w' ? '#38bdf8' : '#ef4444';
+          ctx.lineWidth = 6;
+          ctx.lineCap = 'round';
+          ctx.shadowColor = ctx.strokeStyle;
+          ctx.shadowBlur = 12;
           ctx.beginPath();
           ctx.moveTo(fromFile * sqSize + sqSize/2, fromRank * sqSize + sqSize/2);
           ctx.lineTo(toFile * sqSize + sqSize/2, toRank * sqSize + sqSize/2);
           ctx.stroke();
-          setTimeout(() => { ctx.clearRect(0,0,size,size); }, 600);
+          setTimeout(() => { ctx.clearRect(0,0,size,size); }, 700);
         }
 
         // --- History helpers ---
@@ -213,6 +257,17 @@
           setRoster(entry.rosterBefore);
           setSelected(null); setLegal(new Set());
           return true;
+        }
+        
+        function toggleTurnFen(fen, attackerColor) {
+        // fen: <piece placement> <activeColor> <castling> <ep> <halfmove> <fullmove>
+        const parts = fen.split(' ');
+        if (parts.length < 6) return fen;
+        const wasBlack = attackerColor === 'b';
+        parts[1] = parts[1] === 'w' ? 'b' : 'w';
+        // Increment fullmove count only after a black action completes (mirrors chess FEN)
+        if (wasBlack) parts[5] = String(parseInt(parts[5], 10) + 1);
+        return parts.join(' ');
         }
 
         // --- Input handling ---
@@ -266,28 +321,37 @@
               }
             }
             // Regular quiet move
-            const tmp1 = roster.get(from); const moverChar = tmp1 ? tmp1.char : undefined;
             syncRosterOnMove(from, to);
-            if (moverChar === 'goku' || moverChar === 'vegeta') drawTrail({from, to}, moverChar);
             refreshStatus(); return;
           }
 
           // Capture handling — check downgrade rule
           const defenderState = roster.get(defenderSquare);
           if (defenderState && defenderState.life > 0) {
+            drawAttackLine({ from, to: defenderSquare }, attempted.color);
             const downgraded = { ...defenderState };
             downgraded.life = Math.max(0, downgraded.life - 1);
             downgraded.formIdx = Math.max(0, downgraded.formIdx - 1);
+
             const newRoster = new Map(roster);
-            newRoster.set(defenderSquare, downgraded); setRoster(newRoster);
-            const reverted = new Chess(beforeFEN); setGame(reverted);
-            flashNotice(`Downgrade! ${defenderState.char.toUpperCase()} loses a form`);
-            refreshStatus(); return; // turn unchanged
+            newRoster.set(defenderSquare, downgraded);
+            setRoster(newRoster);
+
+            // Restore board to pre-move position but flip turn to the opponent.
+            const toggledFen = toggleTurnFen(beforeFEN, attempted.color);
+            const reverted = new Chess(toggledFen);
+            setGame(reverted);
+
+            flashNotice(`Downgrade! ${defenderState.char.toUpperCase()} loses a form — turn passes.`);
+            refreshStatus();
+            return;
+
           }
 
           // Defender at base — proceed with capture, attacker upgrades
           const moverState = roster.get(from);
           if (moverState) {
+            drawAttackLine({ from, to: defenderSquare }, attempted.color);
             const boosted = { ...moverState };
             const defenderKills = defenderState?.kills || 0;
             boosted.life += defenderKills + 1; // opponent's kills + 1
@@ -300,7 +364,6 @@
             newRoster.delete(from); newRoster.set(to, boosted);
             if (attempted.flags.includes('e')) newRoster.delete(defenderSquare);
             setRoster(newRoster);
-            if (moverState.char === 'goku' || moverState.char === 'vegeta') drawTrail({from, to}, moverState.char);
           } else {
             syncRosterOnMove(from, to);
           }
@@ -348,9 +411,14 @@
               <Panel title="DBZ Rules (active)">
                 <ul style={{paddingLeft:'18px', fontSize:'14px', lineHeight:1.5}}>
                   <li>On kill: attacker <b>life+1</b> & transforms.</li>
-                  <li>On hit when defender has life &gt; 0: defender <b>life-1</b>, positions unchanged.</li>
+                  <li>On hit when defender has life &gt; 0: defender <b>life-1</b>, positions unchanged, <b>turn passes to the opponent</b>.</li>
                   <li>Base defender on hit: captured normally.</li>
-                  <li>Rooks = <b>Goku</b>, Bishops = <b>Vegeta</b>, King = <b>Zeno</b>, Queen = <b>Whis</b>.</li>
+                  <li>Back rank mapping:</li>
+                  <li style={{marginLeft:'8px'}}>Rooks = <b>Goku</b> & <b>Vegeta</b></li>
+                  <li style={{marginLeft:'8px'}}>Knights = <b>Gohan Kid</b> & <b>Frieza</b></li>
+                  <li style={{marginLeft:'8px'}}>Bishops = <b>Majin Boo</b> & <b>Gotenks</b></li>
+                  <li style={{marginLeft:'8px'}}>Queen = <b>Grand Priest</b>, King = <b>Zeno</b></li>
+                  <li>Pawns = Saibaman, Chiaotzu, Krillin, Tien, Whis, Yamcha, Piccolo, Android 18.</li>
                   <li>Promotions become <b>Grand Priest</b>.</li>
                 </ul>
               </Panel>
@@ -413,18 +481,21 @@ assets/pieces/grand_priest/grand_priest.png
                     {isLegal && p && !hide && <div className="absolute inset-0 capture-ring" style={{position:'absolute', inset:0}} />}
 
                     {p && dbz && !hide && (
-                      <div style={{display:'flex', flexDirection:'column', alignItems:'center'}}>
-                        <img
-                          className={`piece-img`}
-                          draggable="false"
-                          src={spriteUrl(dbz.char, dbz.forms[dbz.formIdx])}
-                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                          alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`}
-                        />
-                        <div style={{marginTop:'4px', fontSize:'12px', color:'rgba(226,232,240,0.8)', textAlign:'center'}}>
-                          {dbz.forms[dbz.formIdx]} · ❤{dbz.life}
+                        <>
+                        <div className="piece-layer">
+                            <img
+                            className="piece-img"
+                            draggable="false"
+                            src={spriteUrl(dbz.char, dbz.forms[dbz.formIdx])}
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`}
+                            />
                         </div>
-                      </div>
+                        <div className="piece-badge">
+                            {dbz.forms[dbz.formIdx]} · ❤{dbz.life}
+                        </div>
+                        </>
+
                     )}
                   </div>
                 );
