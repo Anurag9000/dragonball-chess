@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>DragonBall Chess — Local 2P</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Local vendor scripts (no network required) -->
+  <script src="vendor/react.development.js"></script>
+  <script src="vendor/react-dom.development.js"></script>
+  <script src="vendor/babel.min.js"></script>
+
+    <style>
+    #bootlog {
+        position: fixed;
+        right: 8px;
+        bottom: 8px;
+        z-index: 9999;
+        background: rgba(0, 0, 0, 0.7);
+        color: #e2e8f0;
+        font: 12px/1.4 ui-sans-serif, system-ui;
+        padding: 8px 10px;
+        border-radius: 8px;
+        max-width: 60vw;
+    }
+    </style>
+
+    <script>
+    (function () {
+        const box = document.createElement('div');
+        box.id = 'bootlog';
+        box.textContent = 'Boot: init';
+        document.addEventListener('DOMContentLoaded', () => document.body.appendChild(box));
+        window.__log = (...a) => {
+        box.textContent = a.join(' | ');
+        console.log('[DBZ]', ...a);
+        };
+        window.addEventListener('error', e => {
+        __log('ERROR', e.message);
+        });
+    })();
+    </script>
+
+  <style>
+    html, body { height: 100%; }
+    body { margin: 0; background: #0f172a; color: #e2e8f0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+    .square { aspect-ratio: 1 / 1; }
+    .light { background: #f0d9b5; }
+    .dark { background: #b58863; }
+    .highlight { outline: 3px solid rgba(255, 230, 0, 0.8); outline-offset: -3px; }
+    .legal-dot::after {
+      content: ""; width: 18px; height: 18px; border-radius: 9999px; background: rgba(0,0,0,0.18); position: absolute; inset: 0; margin: auto;
+    }
+    .capture-ring::after {
+      content: ""; position: absolute; inset: 6px; border: 3px solid rgba(220,38,38,0.85); border-radius: 8px;
+    }
+    .mask { background: rgba(2,6,23,0.78); }
+    .piece-img { width: 76%; height: 76%; object-fit: contain; user-select: none; }
+    .pulse { animation: pulseScale 320ms ease-out; }
+    @keyframes pulseScale {
+      0% { transform: scale(0.82); opacity: 0.65; filter: saturate(0.6) brightness(1.1); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* Minimal layout so Tailwind is not required */
+    .container { max-width: 1080px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; grid-template-columns: 1fr 320px; }
+    .card { background: rgba(30,41,59,0.4); border-radius: 16px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+    .board { display: grid; grid-template-columns: repeat(8, 1fr); border: 4px solid #334155; border-radius: 12px; overflow: hidden; }
+    .btn { background:#334155; color:#e2e8f0; border:0; border-radius:10px; padding:8px 12px; cursor:pointer; }
+    .btn:hover { background:#475569; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .status { font-size: 14px; opacity: 0.9; }
+    .stack { display:grid; gap:16px; }
+  </style>
+</head>
+<body>
+  <div id="root" class="min-h-full flex items-center justify-center p-4"></div>
+
+  <!-- App -->
+  <script type="text/babel" data-presets="env,react">
+    window.bootDBZ = function () {
+      if (!window.Chess) { __log('bootDBZ called but Chess missing'); }
+      if (!window.React || !window.ReactDOM) { __log('React/ReactDOM missing'); }
+
+      const { useState, useEffect, useRef } = React;
+
+      // ---------- Helpers ----------
+      const FILES = ['a','b','c','d','e','f','g','h'];
+      const RANKS = [8,7,6,5,4,3,2,1];
+      const isDark = (fileIdx, rankIdx) => (fileIdx + rankIdx) % 2 !== 0;
+
+      // DBZ forms (expand later with sprites)
+      const FORMS = {
+        goku: ['base','kaioken','ssj','ssj2','ssj3','ssg','ssb','ui','mui'],
+        vegeta: ['base','ssj','ssj2','ssb','ultra_ego'],
+        zeno: ['zeno'],
+        whis: ['angel'],
+        grand_priest: ['grand_priest'],
+        piccolo: ['base','potential','orange'],
+        krillin: ['base','kaioken','ssj'],
+        yamcha: ['base','wolf_fang','ssj'],
+        tien: ['base','tri_beam','neo_tri_beam'],
+        chiaotzu: ['base','psychic'],
+        saibaman: ['base','acid','explode'],
+        gohan_kid: ['base','ssj','ssj2']
+      };
+
+      function spriteUrl(char, formKey) { return `assets/pieces/${char}/${formKey}.png`; }
+
+      function initialRoster() {
+        const m = new Map(); // square -> PieceState
+        // White back rank
+        m.set('a1', mk('w','goku'));
+        m.set('b1', mk('w','tien'));
+        m.set('c1', mk('w','vegeta'));
+        m.set('d1', mk('w','whis'));
+        m.set('e1', mk('w','zeno'));
+        m.set('f1', mk('w','vegeta'));
+        m.set('g1', mk('w','yamcha'));
+        m.set('h1', mk('w','goku'));
+        // White pawns
+        const whitePawns = ['a2','b2','c2','d2','e2','f2','g2','h2'];
+        const whiteChars = ['saibaman','krillin','tien','gohan_kid','chiaotzu','yamcha','saibaman','krillin'];
+        whitePawns.forEach((sq, i) => m.set(sq, mk('w', whiteChars[i])));
+        // Black back rank
+        m.set('a8', mk('b','goku'));
+        m.set('b8', mk('b','tien'));
+        m.set('c8', mk('b','vegeta'));
+        m.set('d8', mk('b','whis'));
+        m.set('e8', mk('b','zeno'));
+        m.set('f8', mk('b','vegeta'));
+        m.set('g8', mk('b','yamcha'));
+        m.set('h8', mk('b','goku'));
+        // Black pawns
+        const blackPawns = ['a7','b7','c7','d7','e7','f7','g7','h7'];
+        const blackChars = ['saibaman','krillin','tien','gohan_kid','chiaotzu','yamcha','saibaman','krillin'];
+        blackPawns.forEach((sq, i) => m.set(sq, mk('b', blackChars[i])));
+        return m;
+
+        function mk(color, char) {
+          const forms = FORMS[char] ?? ['base'];
+          return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, formIdx: 0, forms };
+        }
+      }
+
+      // ---------- Main App ----------
+      function App() {
+        // Chess & game state
+        const [game, setGame] = useState(() => new Chess());
+        const [roster, setRoster] = useState(() => initialRoster());
+        const [selected, setSelected] = useState(null);
+        const [legal, setLegal] = useState(new Set());
+        const [status, setStatus] = useState('');
+        const fenBefore = useRef('');
+
+        // UI helpers
+        const [toast, setToast] = useState(null);
+        const [fog, setFog] = useState(false);
+        const trailRef = useRef(null);
+
+        // DBZ-aware undo
+        const historyRef = useRef([]); // stack of { fenBefore, rosterBefore }
+
+        useEffect(() => { refreshStatus(); }, []);
+
+        function refreshStatus() {
+        if (game.isGameOver()) {
+            if (game.isCheckmate()) setStatus(`Checkmate — ${game.turn() === 'w' ? 'Black' : 'White'} wins`);
+            else if (game.isStalemate()) setStatus('Stalemate');
+            else if (game.isDraw()) setStatus('Draw');
+            else setStatus('Game over');
+        } else {
+            const t = game.turn() === 'w' ? 'White' : 'Black';
+            const flags = [ game.isCheck() ? 'Check' : null ].filter(Boolean).join(' • ');
+            setStatus(`${t} to move${flags ? ' — ' + flags : ''}`);
+        }
+        }
+
+        function flashNotice(msg) { setToast(msg); setTimeout(() => setToast(null), 1200); }
+
+        // --- Trails ---
+        function drawTrail(move, char) {
+          if (!trailRef.current) return;
+          const canvas = trailRef.current;
+          const ctx = canvas.getContext('2d');
+          const size = canvas.clientWidth;
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = size * dpr; canvas.height = size * dpr; ctx.scale(dpr, dpr);
+          ctx.clearRect(0,0,size,size);
+          const fromFile = FILES.indexOf(move.from[0]);
+          const fromRank = 8 - parseInt(move.from[1]);
+          const toFile = FILES.indexOf(move.to[0]);
+          const toRank = 8 - parseInt(move.to[1]);
+          const sqSize = size / 8;
+          ctx.strokeStyle = char === 'goku' ? '#38bdf8' : '#a855f7';
+          ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 12;
+          ctx.beginPath();
+          ctx.moveTo(fromFile * sqSize + sqSize/2, fromRank * sqSize + sqSize/2);
+          ctx.lineTo(toFile * sqSize + sqSize/2, toRank * sqSize + sqSize/2);
+          ctx.stroke();
+          setTimeout(() => { ctx.clearRect(0,0,size,size); }, 600);
+        }
+
+        // --- History helpers ---
+        function pushHistory(fenBefore) {
+          historyRef.current.push({ fenBefore, rosterBefore: new Map(roster) });
+        }
+        function popHistory() {
+          const entry = historyRef.current.pop();
+          if (!entry) return false;
+          setGame(new Chess(entry.fenBefore));
+          setRoster(entry.rosterBefore);
+          setSelected(null); setLegal(new Set());
+          return true;
+        }
+
+        // --- Input handling ---
+        function onSquareClick(sq) {
+          if (selected === null) {
+            const p = game.get(sq); if (!p) return; if (p.color !== game.turn()) return;
+            setSelected(sq);
+            const moves = game.moves({ square: sq, verbose: true }).map(m => m.to);
+            setLegal(new Set(moves));
+            fenBefore.current = game.fen();
+            return;
+          }
+          const pieceAt = game.get(sq);
+          if (pieceAt && pieceAt.color === game.turn()) {
+            setSelected(sq);
+            const moves = game.moves({ square: sq, verbose: true }).map(m => m.to);
+            setLegal(new Set(moves));
+            fenBefore.current = game.fen();
+            return;
+          }
+          if (legal.has(sq)) doMove(selected, sq);
+          setSelected(null); setLegal(new Set());
+        }
+
+        // --- Core move pipeline (DBZ rules + chess.js) ---
+        function doMove(from, to, promotion) {
+          const beforeFEN = fenBefore.current || game.fen();
+          pushHistory(beforeFEN);
+
+          const attempted = game.move({ from, to, promotion: promotion || 'q' });
+          if (!attempted) { setGame(new Chess(game.fen())); historyRef.current.pop(); return; }
+          const wasCapture = !!attempted.captured || attempted.flags.includes('e');
+
+          // En passant defender square
+          let defenderSquare = to;
+          if (attempted.flags.includes('e')) {
+            defenderSquare = attempted.color === 'w' ? to[0] + (parseInt(to[1]) - 1) : to[0] + (parseInt(to[1]) + 1);
+          }
+
+          if (!wasCapture) {
+            // Handle promotion reskin if happened on a quiet move
+            if (attempted.flags.includes('p')) {
+              const mover = roster.get(from);
+              if (mover) {
+                const promoted = { ...mover, char: 'grand_priest', forms: ['grand_priest'], formIdx: 0 };
+                const newRoster = new Map(roster);
+                newRoster.delete(from); newRoster.set(to, promoted); setRoster(newRoster);
+                const moverChar = mover.char; if (moverChar === 'goku' || moverChar === 'vegeta') drawTrail({from, to}, moverChar);
+                refreshStatus(); return;
+              }
+            }
+            // Regular quiet move
+            const tmp1 = roster.get(from); const moverChar = tmp1 ? tmp1.char : undefined;
+            syncRosterOnMove(from, to);
+            if (moverChar === 'goku' || moverChar === 'vegeta') drawTrail({from, to}, moverChar);
+            refreshStatus(); return;
+          }
+
+          // Capture handling — check downgrade rule
+          const defenderState = roster.get(defenderSquare);
+          if (defenderState && defenderState.life > 0) {
+            const downgraded = { ...defenderState };
+            downgraded.life = Math.max(0, downgraded.life - 1);
+            downgraded.formIdx = Math.max(0, downgraded.formIdx - 1);
+            const newRoster = new Map(roster);
+            newRoster.set(defenderSquare, downgraded); setRoster(newRoster);
+            const reverted = new Chess(beforeFEN); setGame(reverted);
+            flashNotice(`Downgrade! ${defenderState.char.toUpperCase()} loses a form`);
+            refreshStatus(); return; // turn unchanged
+          }
+
+          // Defender at base — proceed with capture, attacker upgrades
+          const moverState = roster.get(from);
+          if (moverState) {
+            const boosted = { ...moverState };
+            boosted.life += 1; if (boosted.formIdx < boosted.forms.length - 1) boosted.formIdx += 1;
+            if (attempted.flags.includes('p')) { boosted.char = 'grand_priest'; boosted.forms = ['grand_priest']; boosted.formIdx = 0; }
+            const newRoster = new Map(roster);
+            newRoster.delete(from); newRoster.set(to, boosted);
+            if (attempted.flags.includes('e')) newRoster.delete(defenderSquare);
+            setRoster(newRoster);
+            if (moverState.char === 'goku' || moverState.char === 'vegeta') drawTrail({from, to}, moverState.char);
+          } else {
+            syncRosterOnMove(from, to);
+          }
+          flashNotice('Power up!');
+          refreshStatus();
+        }
+
+        function syncRosterOnMove(from, to) {
+          const st = roster.get(from); if (!st) return;
+          const newRoster = new Map(roster); newRoster.delete(from); newRoster.set(to, st); setRoster(newRoster);
+        }
+
+        // ---- UI ----
+        return (
+          <div className="container">
+            <div className="card">
+              <div style={{fontSize:'20px', fontWeight:600, marginBottom:'12px'}}>DragonBall Chess — Local 2P</div>
+              <div className="relative">
+                <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} />
+                <div style={{position:'absolute', inset:0}}>
+                  <canvas ref={trailRef} className="w-full h-full pointer-events-none" />
+                </div>
+              </div>
+              <div className="row" style={{marginTop:'16px', justifyContent:'space-between'}}>
+                <div className="status">{status}</div>
+                <div className="row">
+                  <button className="btn" onClick={() => { const g = new Chess(); setGame(g); setRoster(initialRoster()); setSelected(null); setLegal(new Set()); historyRef.current = []; refreshStatus(); }}>Restart</button>
+                  <button className="btn" onClick={() => { if (!popHistory()) return; refreshStatus(); }}>Undo</button>
+                  <button className="btn" onClick={() => setFog(f => !f)}>{fog ? 'Fog: ON' : 'Fog: OFF'}</button>
+                </div>
+              </div>
+            </div>
+
+            <aside className="stack">
+              <Panel title="Turn / State">
+                <div className="text-sm leading-relaxed">
+                  <div><b>Side:</b> {game.turn() === 'w' ? 'White' : 'Black'}</div>
+                  <div><b>Check:</b> {game.isCheck() ? 'Yes' : 'No'}</div>
+                  <div><b>Stalemate:</b> {game.isStalemate() ? 'Yes' : 'No'}</div>
+                  <div><b>Castling Rights:</b> <code style={{fontSize:'12px'}}>{game.fen().split(' ')[2]}</code></div>
+                  <div><b>En Passant:</b> <code style={{fontSize:'12px'}}>{game.fen().split(' ')[3]}</code></div>
+                </div>
+              </Panel>
+
+              <Panel title="DBZ Rules (active)">
+                <ul style={{paddingLeft:'18px', fontSize:'14px', lineHeight:1.5}}>
+                  <li>On kill: attacker <b>life+1</b> & transforms.</li>
+                  <li>On hit when defender has life &gt; 0: defender <b>life-1</b>, positions unchanged.</li>
+                  <li>Base defender on hit: captured normally.</li>
+                  <li>Rooks = <b>Goku</b>, Bishops = <b>Vegeta</b>, King = <b>Zeno</b>, Queen = <b>Whis</b>.</li>
+                  <li>Promotions become <b>Grand Priest</b>.</li>
+                </ul>
+              </Panel>
+
+              <Panel title="Assets">
+                <div style={{fontSize:'12px', opacity:0.9}}>
+                  Place sprites as PNGs:
+                  <pre style={{marginTop:'8px', background:'#0b1220', padding:'8px', borderRadius:'8px'}}>assets/pieces/goku/base.png, kaioken.png, ssj.png, ...
+assets/pieces/vegeta/base.png, ssj.png, ssj2.png, ssb.png, ultra_ego.png
+assets/pieces/zeno/zeno.png
+assets/pieces/grand_priest/grand_priest.png
+... (others optional)</pre>
+                  Missing sprites simply hide the image.
+                </div>
+              </Panel>
+            </aside>
+
+            {toast && (
+              <div style={{position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'rgba(0,0,0,0.7)', padding:'8px 12px', borderRadius:'12px', fontSize:'14px', boxShadow:'0 8px 20px rgba(0,0,0,0.35)'}}>
+                {toast}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      function Panel({ title, children }) {
+        return (
+          <div className="card">
+            <div style={{fontWeight:600, marginBottom:'8px'}}>{title}</div>
+            {children}
+          </div>
+        );
+      }
+
+      function Board({ game, roster, selected, legal, fog, onSquareClick }) {
+        return (
+          <div className="board">
+            {RANKS.map((r, rIdx) =>
+              FILES.map((f, fIdx) => {
+                const sq = `${f}${r}`;
+                const dark = isDark(fIdx, rIdx);
+                const p = game.get(sq);
+                const dbz = roster.get(sq);
+                const isSel = selected === sq;
+                const isLegal = legal.has(sq);
+                const hide = fog && (
+                  (game.turn() === 'w' && r > 4 && (!p || p.color !== 'w')) ||
+                  (game.turn() === 'b' && r < 5 && (!p || p.color !== 'b'))
+                );
+                return (
+                  <div
+                    key={sq}
+                    onClick={() => !hide && onSquareClick(sq)}
+                    className={`relative square flex items-center justify-center select-none ${hide ? 'cursor-not-allowed' : 'cursor-pointer'} ${dark ? 'dark' : 'light'} ${isSel ? 'highlight' : ''}`}
+                    style={{position:'relative', display:'flex', alignItems:'center', justifyContent:'center'}}
+                  >
+                    {hide && <div className="absolute inset-0 mask" style={{position:'absolute', inset:0}}></div>}
+                    {isLegal && !p && !hide && <div className="absolute inset-0 legal-dot" style={{position:'absolute', inset:0}} />}
+                    {isLegal && p && !hide && <div className="absolute inset-0 capture-ring" style={{position:'absolute', inset:0}} />}
+
+                    {p && dbz && !hide && (
+                      <div style={{display:'flex', flexDirection:'column', alignItems:'center'}}>
+                        <img
+                          className={`piece-img`}
+                          draggable="false"
+                          src={spriteUrl(dbz.char, dbz.forms[dbz.formIdx])}
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                          alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`}
+                        />
+                        <div style={{marginTop:'4px', fontSize:'12px', color:'rgba(226,232,240,0.8)', textAlign:'center'}}>
+                          {dbz.forms[dbz.formIdx]} · ❤{dbz.life}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        );
+      }
+
+        // Safe mount with diagnostics
+        window.__mountApp = function () {
+        try {
+            if (!window.Chess) throw new Error('Chess not loaded');
+            const rootEl = document.getElementById('root');
+            if (!rootEl) throw new Error('#root not found');
+            ReactDOM.createRoot(rootEl).render(<App />);
+            __log('Mounted OK');
+        } catch (err) {
+            __log('Mount failed:', err.message);
+            throw err;
+        }
+        };
+
+        // In case loader called us before DOMContentLoaded, delay a tick
+        setTimeout(() => {
+        try { window.__mountApp(); } catch(_) {}
+        }, 0);
+
+    }
+  </script>
+
+  <!-- ES Module loader for chess.js (single source of truth) -->
+  <script type="module">
+    async function loadChessAndBoot() {
+        const tryImport = async (url) => {
+        __log('Importing', url);
+        const m = await import(url);
+        return m.Chess || m.default || m;
+        };
+
+        let ChessCtor = null;
+
+        // 1) ESM path (modern)
+        try {
+        ChessCtor = await tryImport('https://cdn.jsdelivr.net/npm/chess.js@1.4.0/dist/esm/chess.js');
+        } catch (e1) {
+        try {
+            ChessCtor = await tryImport('https://unpkg.com/chess.js@1.4.0/dist/esm/chess.js');
+        } catch (e2) {
+            __log('ESM failed, falling back to UMD…');
+            // 2) Legacy UMD fallback (0.10.3) – attaches global `Chess`
+            await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js';
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+            });
+            ChessCtor = window.Chess;
+            // Patch legacy to v1-like surface (minimal shims we use)
+            if (ChessCtor) {
+            __log('UMD loaded');
+            const _proto = ChessCtor.prototype;
+            _proto.isGameOver = _proto.game_over;
+            _proto.isCheck = _proto.in_check;
+            _proto.isCheckmate = _proto.in_checkmate;
+            _proto.isStalemate = _proto.in_stalemate;
+            _proto.isDraw = _proto.in_draw;
+            }
+        }
+        }
+
+        if (!ChessCtor) {
+        __log('Chess undefined after loads');
+        alert('Failed to load chess.js');
+        return;
+        }
+
+        window.Chess = ChessCtor;
+        __log('Chess ready');
+
+        if (typeof window.bootDBZ === 'function') {
+        __log('Calling bootDBZ');
+        window.bootDBZ();
+        } else {
+        __log('bootDBZ not defined yet; retrying shortly…');
+        let tries = 0;
+        const t = setInterval(() => {
+            tries++;
+            if (typeof window.bootDBZ === 'function') {
+            clearInterval(t);
+            __log('bootDBZ found (retry)', tries);
+            window.bootDBZ();
+            } else if (tries > 20) {
+            clearInterval(t);
+            alert('App boot function missing');
+            __log('bootDBZ missing after retries');
+            }
+        }, 100);
+        }
+
+    }
+
+    loadChessAndBoot();
+  </script>
+
+  <script>
+    console.log('Booting DBZ Chess…'); __log('Booting…');
+  </script>
+
+</body>
+</html>
