@@ -2,7 +2,8 @@
 
 A single-file React app that mashes up classic chess with Dragon Ball transformations. Pieces “power up” on captures, can be “damaged” (lose a form) on hits, and promotions become the Grand Priest. Runs fully in the browser; optional embedded Stockfish (WASM) gives you a local AI with adjustable strength.
 
----
+🎮 **[▶ Play it online here](https://anurag9000.github.io/dragonball-chess/)** — works entirely in your browser.
+
 
 ## ✨ Features
 
