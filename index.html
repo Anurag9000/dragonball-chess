@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>DragonBall Chess — Local 2P</title>
+  <title>DragonBall Chess — Local 2P (All Fixes)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Local vendor scripts (no network required) -->
+  <!-- Local vendor scripts (no network required if vendored locally) -->
   <script src="vendor/react.development.js"></script>
   <script src="vendor/react-dom.development.js"></script>
   <script src="vendor/babel.min.js"></script>
@@ -14,33 +14,16 @@
     window.Module = { locateFile: p => 'vendor/lichess/' + p };
   </script>
   <style>
-    #bootlog {
-      position: fixed;
-      right: 8px;
-      bottom: 8px;
-      z-index: 9999;
-      background: rgba(0, 0, 0, 0.7);
-      color: #e2e8f0;
-      font: 12px/1.4 ui-sans-serif, system-ui;
-      padding: 8px 10px;
-      border-radius: 8px;
-      max-width: 60vw;
-    }
+    #bootlog { position: fixed; right: 8px; bottom: 8px; z-index: 9999; background: rgba(0, 0, 0, 0.7); color: #e2e8f0; font: 12px/1.4 ui-sans-serif, system-ui; padding: 8px 10px; border-radius: 8px; max-width: 60vw; }
   </style>
-
   <script>
     (function () {
       const box = document.createElement('div');
       box.id = 'bootlog';
       box.textContent = 'Boot: init';
       document.addEventListener('DOMContentLoaded', () => document.body.appendChild(box));
-      window.__log = (...a) => {
-        box.textContent = a.join(' | ');
-        console.log('[DBZ]', ...a);
-      };
-      window.addEventListener('error', e => {
-        __log('ERROR', e.message);
-      });
+      window.__log = (...a) => { box.textContent = a.join(' | '); console.log('[DBZ]', ...a); };
+      window.addEventListener('error', e => { __log('ERROR', e.message); });
     })();
   </script>
 
@@ -58,27 +41,21 @@
     /* Piece rendering */
     .piece-layer { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 6%; pointer-events: none; z-index: 10; }
     .piece-img { width: 100%; height: 100%; object-fit: contain; user-select: none; display: block; }
-    .relative { position: relative; }
-    .piece-badge {
-      position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: 12px; font-weight: 600; color: #fff;
-      text-shadow: 0 1px 2px rgba(0,0,0,0.9); background: rgba(0,0,0,0.6); border-radius: 9999px; padding: 2px 6px; max-width: 90%; margin: 0 auto; pointer-events: none; backdrop-filter: blur(3px);
-    }
+    .piece-badge { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: 12px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.9); background: rgba(0,0,0,0.6); border-radius: 9999px; padding: 2px 6px; max-width: 90%; margin: 0 auto; pointer-events: none; backdrop-filter: blur(3px); }
 
-    /* --- Team visuals --- */
+    /* Team visuals */
     .team-w .piece-img { filter: drop-shadow(0 0 6px rgba(96,165,250,0.9)) drop-shadow(0 0 16px rgba(147,197,253,0.7)); }
     .team-b .piece-img { filter: drop-shadow(0 0 6px rgba(248,113,113,0.9)) drop-shadow(0 0 16px rgba(254,202,202,0.7)); }
-
     .team-ring { position: absolute; inset: 5px; border-radius: 10px; pointer-events: none; }
     .team-w .team-ring { border: 3px solid rgba(59,130,246,0.85); box-shadow: 0 0 10px rgba(59,130,246,0.45) inset; }
     .team-b .team-ring { border: 3px solid rgba(239,68,68,0.85); box-shadow: 0 0 10px rgba(239,68,68,0.45) inset; }
-
     .team-w .piece-badge { background: rgba(59,130,246,0.22); border-radius: 9999px; display: inline-block; padding: 2px 6px; }
     .team-b .piece-badge { background: rgba(239,68,68,0.22); border-radius: 9999px; display: inline-block; padding: 2px 6px; }
 
     .pulse { animation: pulseScale 320ms ease-out; }
     @keyframes pulseScale { 0% { transform: scale(0.82); opacity: 0.65; filter: saturate(0.6) brightness(1.1); } 100% { transform: scale(1); opacity: 1; } }
 
-    /* Minimal layout */
+    /* Layout */
     .container { max-width: 1080px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; grid-template-columns: 1fr 320px; }
     .card { background: rgba(30,41,59,0.4); border-radius: 16px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
     .board { position: relative; display: grid; grid-template-columns: repeat(8, 1fr); border: 4px solid #334155; border-radius: 12px; overflow: hidden; }
@@ -109,39 +86,29 @@
       const RANKS = [8,7,6,5,4,3,2,1];
       const isDark = (fileIdx, rankIdx) => (fileIdx + rankIdx) % 2 !== 0;
 
-      // DBZ forms (expand later with sprites)
+      function sqToFR(sq){ const f = FILES.indexOf(sq[0]); const rNum = parseInt(sq[1],10); const rIdx = 8 - rNum; return { f, rNum, rIdx }; }
+      function frToSq(f, rNum){ if(f<0||f>7||rNum<1||rNum>8) return null; return FILES[f] + String(rNum); }
+
+      // DBZ forms
       const FORMS = {
         goku: ['base', 'kaioken', 'ssj','ssj2','ssj3', 'ssj4', 'ssg', 'ssb', 'ssb_kaioken', 'ui','mui'],
         vegeta: ['base','great_ape', 'ssj','ssj2','ssj3', 'ssj4', 'ssg', 'ssb', 'ssb_evolved', 'ultra_ego'],
-        zeno: ['zeno'],
-        whis: ['angel'],
-        grand_priest: ['grand_priest'],
-        piccolo: ['base','potential','orange'],
-        krillin: ['base'],
-        yamcha: ['base'],
-        tien: ['base'],
-        chiaotzu: ['base'],
-        android_18: ['base'],
+        zeno: ['zeno'], whis: ['angel'], grand_priest: ['grand_priest'],
+        piccolo: ['base','potential','orange'], krillin: ['base'], yamcha: ['base'], tien: ['base'], chiaotzu: ['base'], android_18: ['base'],
         majin_boo: ['fat','evil','super','buutenks','buuccolo','buuhan','kid_buu'],
-        frieza: ['1','2','3','final','mecha','golden','black'],
-        saibaman: ['base'],
-        gohan_kid: ['base','ssj','ssj2', 'ssj3', 'mystic', 'beast'],
-        gotenks: ['base','ssj', 'ssj2', 'ssj3'],
+        frieza: ['1','2','3','final','mecha','golden','black'], saibaman: ['base'],
+        gohan_kid: ['base','ssj','ssj2', 'ssj3', 'mystic', 'beast'], gotenks: ['base','ssj', 'ssj2', 'ssj3'],
       };
 
       function spriteUrl(char, formKey) { return `assets/pieces/${char}/${formKey}.png`; }
 
-      // --- Strict mapping guards: which chess piece is which DBZ character ---
+      // Mapping guards
       const TYPE_ALLOWED = {
-        k: new Set(['zeno']),
-        q: new Set(['grand_priest']),
-        r: new Set(['goku','vegeta']),
-        b: new Set(['majin_boo','gotenks']),
-        n: new Set(['gohan_kid','frieza']),
+        k: new Set(['zeno']), q: new Set(['grand_priest']), r: new Set(['goku','vegeta']),
+        b: new Set(['majin_boo','gotenks']), n: new Set(['gohan_kid','frieza']),
         p: new Set(['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']),
       };
-
-      const PAWN_FILES_DEFAULT = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']; // a..h
+      const PAWN_FILES_DEFAULT = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18'];
 
       const POWER_OF = st => (st?.formIdx ?? 0);
       const LIVES_OF = st => (st?.life ?? 0);
@@ -152,17 +119,11 @@
         return { forms, formIdx: idx };
       }
 
-      /** Normalize/repair roster to legal character for each chess piece type */
       function ensureMappingStrict(chess, rosterMap) {
-        const out = new Map();
-        let changed = false;
+        const out = new Map(); let changed = false;
         for (const f of FILES) for (const r of RANKS) {
-          const sq = `${f}${r}`;
-          const p = chess.get(sq);
-          if (!p) continue;
-          const allowed = TYPE_ALLOWED[p.type] || new Set();
-          let dbz = rosterMap.get(sq);
-
+          const sq = `${f}${r}`; const p = chess.get(sq); if (!p) continue;
+          const allowed = TYPE_ALLOWED[p.type] || new Set(); let dbz = rosterMap.get(sq);
           if (!dbz) {
             let char = 'grand_priest';
             if (p.type === 'k') char = 'zeno';
@@ -170,10 +131,7 @@
             else if (p.type === 'r') char = 'goku';
             else if (p.type === 'b') char = 'majin_boo';
             else if (p.type === 'n') char = 'gohan_kid';
-            else if (p.type === 'p') {
-              const fileIdx = FILES.indexOf(f);
-              char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman';
-            }
+            else if (p.type === 'p') { const fileIdx = FILES.indexOf(f); char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman'; }
             const { forms, formIdx } = clampForm(char, 0);
             dbz = { id: `${p.color}_${char}_${Math.random().toString(36).slice(2,9)}`, color: p.color, char, life: 0, kills: 0, forms, formIdx, maxForm: 0 };
             changed = true;
@@ -185,24 +143,13 @@
               else if (p.type === 'r') char = ['goku','vegeta'].includes(dbz.char) ? dbz.char : 'goku';
               else if (p.type === 'b') char = ['majin_boo','gotenks'].includes(dbz.char) ? dbz.char : 'majin_boo';
               else if (p.type === 'n') char = ['gohan_kid','frieza'].includes(dbz.char) ? dbz.char : 'gohan_kid';
-              else if (p.type === 'p') {
-                if (!TYPE_ALLOWED.p.has(char)) {
-                  const fileIdx = FILES.indexOf(f);
-                  char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman';
-                }
-              }
+              else if (p.type === 'p') { if (!TYPE_ALLOWED.p.has(char)) { const fileIdx = FILES.indexOf(f); char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman'; } }
               const { forms, formIdx } = clampForm(char, dbz.formIdx ?? 0);
-              dbz = { ...dbz, char, forms, formIdx };
-              changed = true;
+              dbz = { ...dbz, char, forms, formIdx }; changed = true;
             } else {
               const { forms, formIdx } = clampForm(char, dbz.formIdx ?? 0);
-              let maxForm = dbz.maxForm ?? formIdx;
-              if (maxForm < formIdx) maxForm = formIdx;
-              if (maxForm > forms.length - 1) maxForm = forms.length - 1;
-              if (forms !== dbz.forms || formIdx !== dbz.formIdx || maxForm !== dbz.maxForm) {
-                dbz = { ...dbz, forms, formIdx, maxForm };
-                changed = true;
-              }
+              let maxForm = dbz.maxForm ?? formIdx; if (maxForm < formIdx) maxForm = formIdx; if (maxForm > forms.length - 1) maxForm = forms.length - 1;
+              if (forms !== dbz.forms || formIdx !== dbz.formIdx || maxForm !== dbz.maxForm) { dbz = { ...dbz, forms, formIdx, maxForm }; changed = true; }
             }
             if (dbz.color !== p.color) { dbz = { ...dbz, color: p.color }; changed = true; }
           }
@@ -214,44 +161,19 @@
       function initialRoster() {
         const m = new Map();
         // White back rank
-        m.set('a1', mk('w','goku'));
-        m.set('b1', mk('w','gohan_kid'));
-        m.set('c1', mk('w','majin_boo'));
-        m.set('d1', mk('w','grand_priest'));
-        m.set('e1', mk('w','zeno'));
-        m.set('f1', mk('w','gotenks'));
-        m.set('g1', mk('w','frieza'));
-        m.set('h1', mk('w','vegeta'));
-        // White pawns a2..h2
-        ['a2','b2','c2','d2','e2','f2','g2','h2'].forEach((sq, i) => {
-          const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18'];
-          m.set(sq, mk('w', order[i]));
-        });
+        m.set('a1', mk('w','goku')); m.set('b1', mk('w','gohan_kid')); m.set('c1', mk('w','majin_boo')); m.set('d1', mk('w','grand_priest')); m.set('e1', mk('w','zeno')); m.set('f1', mk('w','gotenks')); m.set('g1', mk('w','frieza')); m.set('h1', mk('w','vegeta'));
+        // White pawns
+        ['a2','b2','c2','d2','e2','f2','g2','h2'].forEach((sq, i) => { const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']; m.set(sq, mk('w', order[i])); });
         // Black back rank
-        m.set('a8', mk('b','goku'));
-        m.set('b8', mk('b','gohan_kid'));
-        m.set('c8', mk('b','majin_boo'));
-        m.set('d8', mk('b','grand_priest'));
-        m.set('e8', mk('b','zeno'));
-        m.set('f8', mk('b','gotenks'));
-        m.set('g8', mk('b','frieza'));
-        m.set('h8', mk('b','vegeta'));
-        // Black pawns a7..h7
-        ['a7','b7','c7','d7','e7','f7','g7','h7'].forEach((sq, i) => {
-          const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18'];
-          m.set(sq, mk('b', order[i]));
-        });
+        m.set('a8', mk('b','goku')); m.set('b8', mk('b','gohan_kid')); m.set('c8', mk('b','majin_boo')); m.set('d8', mk('b','grand_priest')); m.set('e8', mk('b','zeno')); m.set('f8', mk('b','gotenks')); m.set('g8', mk('b','frieza')); m.set('h8', mk('b','vegeta'));
+        // Black pawns
+        ['a7','b7','c7','d7','e7','f7','g7','h7'].forEach((sq, i) => { const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']; m.set(sq, mk('b', order[i])); });
         return m;
-
-        function mk(color, char) {
-          const forms = FORMS[char] ?? ['base'];
-          return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms };
-        }
+        function mk(color, char) { const forms = FORMS[char] ?? ['base']; return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms }; }
       }
 
       // ---------- Main App ----------
       function App() {
-        // Chess & game state
         const [game, setGame] = useState(() => new Chess());
         const [roster, setRoster] = useState(() => initialRoster());
         const [selected, setSelected] = useState(null);
@@ -259,7 +181,6 @@
         const [status, setStatus] = useState('');
         const fenBefore = useRef('');
 
-        // UI helpers
         const [toast, setToast] = useState(null);
         const [fog, setFog] = useState(false);
         const trailRef = useRef(null);
@@ -324,18 +245,65 @@
         function flashNotice(msg) { setToast(msg); setTimeout(() => setToast(null), 1200); }
         function bumpMaxForm(state, newFormIdx) { const nf = Math.max(newFormIdx, state.maxForm ?? state.formIdx ?? 0); return { ...state, maxForm: nf }; }
 
-        // --- Visual attack trail ---
+        // ========= TURN-AGNOSTIC ATTACK DETECTOR (Fix #1) =========
+        function attackersFromColor(targetSq, attackerColor){
+          const { f: tf, rNum: trNum } = sqToFR(targetSq);
+          const attackers = new Set();
+
+          // Knights (must be knights)
+          const kOff = [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]];
+          for(const [df,dr] of kOff){
+            const sq = frToSq(tf+df, trNum+dr); if(!sq) continue; const p = game.get(sq);
+            if(p && p.color===attackerColor && p.type==='n') attackers.add(sq);
+          }
+          // King
+          for(let df=-1; df<=1; df++) for(let dr=-1; dr<=1; dr++) if(df||dr){
+            const sq=frToSq(tf+df, trNum+dr); const p=sq?game.get(sq):null; if(p && p.color===attackerColor && p.type==='k') attackers.add(sq);
+          }
+          // Pawns
+          if(attackerColor==='w'){
+            const sq1 = frToSq(tf-1, trNum-1), sq2 = frToSq(tf+1, trNum-1);
+            const p1 = sq1?game.get(sq1):null, p2 = sq2?game.get(sq2):null;
+            if(p1 && p1.color==='w' && p1.type==='p') attackers.add(sq1);
+            if(p2 && p2.color==='w' && p2.type==='p') attackers.add(sq2);
+          } else {
+            const sq1 = frToSq(tf-1, trNum+1), sq2 = frToSq(tf+1, trNum+1);
+            const p1 = sq1?game.get(sq1):null, p2 = sq2?game.get(sq2):null;
+            if(p1 && p1.color==='b' && p1.type==='p') attackers.add(sq1);
+            if(p2 && p2.color==='b' && p2.type==='p') attackers.add(sq2);
+          }
+          // Sliders
+          const rays = [ {dirs:[[1,0],[-1,0],[0,1],[0,-1]], types:new Set(['r','q'])}, {dirs:[[1,1],[1,-1],[-1,1],[-1,-1]], types:new Set(['b','q'])} ];
+          for(const grp of rays){
+            for(const [df,dr] of grp.dirs){
+              let ff=tf+df, rr=trNum+dr;
+              while(true){
+                const sq = frToSq(ff, rr); if(!sq) break; const p = game.get(sq);
+                if(!p){ ff+=df; rr+=dr; continue; }
+                if(p.color===attackerColor && grp.types.has(p.type)) attackers.add(sq);
+                break; // stop ray on first piece
+              }
+            }
+          }
+          return attackers;
+        }
+        function kingSquareOf(color) {
+          const b = game.board();
+          for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+            const cell = b[r][c]; if (cell && cell.type === 'k' && cell.color === color) { return `${FILES[c]}${8 - r}`; }
+          }
+          return null;
+        }
+        function attackersOfKing(color){ const ks = kingSquareOf(color); if(!ks) return new Set(); const opp = color==='w' ? 'b' : 'w'; return attackersFromColor(ks, opp); }
+
+        // --- Visual attack trail (Fix #2: from -> attempted.to) ---
         function drawAttackLine(move, attackerColor) {
           if (!trailRef.current) return;
           const canvas = trailRef.current;
           const rect = canvas.getBoundingClientRect();
-          const w = rect.width, h = rect.height;
-          const dpr = window.devicePixelRatio || 1;
-          canvas.width = Math.max(1, Math.round(w * dpr));
-          canvas.height = Math.max(1, Math.round(h * dpr));
-          const ctx = canvas.getContext('2d');
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.clearRect(0, 0, w, h);
+          const w = rect.width, h = rect.height; const dpr = window.devicePixelRatio || 1;
+          canvas.width = Math.max(1, Math.round(w * dpr)); canvas.height = Math.max(1, Math.round(h * dpr));
+          const ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
           const border = 4; const innerW = Math.max(0, w - border * 2); const innerH = Math.max(0, h - border * 2);
           const sqW = innerW / 8; const sqH = innerH / 8;
           const fromFile = FILES.indexOf(move.from[0]); const fromRank = 8 - parseInt(move.from[1], 10);
@@ -347,21 +315,25 @@
           setTimeout(() => { ctx.clearRect(0, 0, w, h); }, 700);
         }
 
-        // --- Material / Captures helpers ---
+        // --- Material / Captures ---
         const PIECE_VALUE = { p:1, n:3, b:3, r:5, q:9 };
         function materialScore(game) {
-          let w = 0, b = 0;
-          for (const row of game.board()) for (const cell of row) { if (!cell) continue; const v = PIECE_VALUE[cell.type] || 0; if (cell.color === 'w') w += v; else b += v; }
+          let w = 0, b = 0; for (const row of game.board()) for (const cell of row) { if (!cell) continue; const v = PIECE_VALUE[cell.type] || 0; if (cell.color === 'w') w += v; else b += v; }
           return { w, b, diff: w - b };
         }
 
-        // --- History helpers ---
-        function pushHistory(fenBefore) { historyRef.current.push({ fenBefore, rosterBefore: new Map(roster) }); }
+        // --- History helpers (Fix #3: restore capture arrays) ---
+        function pushHistory(fenBefore) {
+          historyRef.current.push({ fenBefore, rosterBefore: new Map(roster), capturedByWhite: [...capturedByWhite], capturedByBlack: [...capturedByBlack], toast });
+        }
         function popHistory() {
           const entry = historyRef.current.pop(); if (!entry) return false;
           const g = new Chess(entry.fenBefore);
           const [norm] = ensureMappingStrict(g, entry.rosterBefore);
-          setGame(g); setRoster(norm); setCapturedByWhite([]); setCapturedByBlack([]); setSelected(null); setLegal(new Set());
+          setGame(g); setRoster(norm);
+          setCapturedByWhite(entry.capturedByWhite || []); setCapturedByBlack(entry.capturedByBlack || []);
+          setToast(entry.toast || null);
+          setSelected(null); setLegal(new Set());
           return true;
         }
         function toggleTurnFen(fen, attackerColor) {
@@ -370,76 +342,44 @@
           return parts.join(' ');
         }
 
-        // --- KING & CHECK helpers implementing requested constraints ---
-        function kingSquareOf(color) {
-          const b = game.board();
-          for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
-            const cell = b[r][c]; if (cell && cell.type === 'k' && cell.color === color) { return `${FILES[c]}${8 - r}`; }
-          }
-          return null;
-        }
-        function attackersOfSquare(colorToMove, targetSq) {
-          // Return opponent squares that attack targetSq
-          const opp = colorToMove === 'w' ? 'b' : 'w';
-          const moves = game.moves({ verbose: true });
-          const out = new Set();
-          for (const m of moves) { if (m.color === opp && m.to === targetSq) out.add(m.from); }
-          return out;
-        }
-        function attackersOfKing(colorToMove) {
-          const ks = kingSquareOf(colorToMove); if (!ks) return new Set();
-          return attackersOfSquare(colorToMove, ks);
-        }
-
         // --- Input handling ---
         function onSquareClick(sq) {
           if (selected === null) {
             const p = game.get(sq); if (!p) return; if (p.color !== game.turn()) return;
             const baseMoves = game.moves({ square: sq, verbose: true });
             const filtered = filterMovesByDBZRules(baseMoves, sq);
-            setSelected(sq); setLegal(new Set(filtered.map(m => m.to))); fenBefore.current = game.fen();
-            return;
+            setSelected(sq); setLegal(new Set(filtered.map(m => m.to))); fenBefore.current = game.fen(); return;
           }
           const pieceAt = game.get(sq);
           if (pieceAt && pieceAt.color === game.turn()) {
             const baseMoves = game.moves({ square: sq, verbose: true });
             const filtered = filterMovesByDBZRules(baseMoves, sq);
-            setSelected(sq); setLegal(new Set(filtered.map(m => m.to))); fenBefore.current = game.fen();
-            return;
+            setSelected(sq); setLegal(new Set(filtered.map(m => m.to))); fenBefore.current = game.fen(); return;
           }
           if (legal.has(sq)) doMove(selected, sq);
           setSelected(null); setLegal(new Set());
         }
 
-        // FILTER per requested rules (no king capture vs powered checker; only higher-life piece can capture a checking piece)
+        // FILTER per requested rules (uses turn-agnostic attackers)
         function filterMovesByDBZRules(baseMoves, fromSq) {
           const res = [];
-          const color = game.get(fromSq)?.color;
-          const opp = color === 'w' ? 'b' : 'w';
-          const kingSq = kingSquareOf(color);
-          const attackersNow = attackersOfKing(color); // squares of pieces currently checking our king
-
-          const checkingSquares = new Set(attackersNow);
+          const color = game.get(fromSq)?.color; const checkingSquares = attackersOfKing(color);
           for (const m of baseMoves) {
-            // Rule A: If our king attempts to capture a checker whose lives > 0 — forbid.
+            // A) King cannot capture a checker with lives > 0
             if (game.get(fromSq)?.type === 'k' && checkingSquares.has(m.to)) {
-              const checkerState = roster.get(m.to);
-              if (LIVES_OF(checkerState) > 0) continue; // illegal capture
+              const checkerState = roster.get(m.to); if (LIVES_OF(checkerState) > 0) continue;
             }
-            // Rule B: Any friendly piece trying to capture a piece that is currently checking our king must have strictly more lives than that checker.
-            if (checkingSquares.size > 0 && m.flags.includes('c')) { // capture attempt
-              if (checkingSquares.has(m.to)) {
-                const attackerState = roster.get(fromSq);
-                const checkerState = roster.get(m.to);
-                if (!(LIVES_OF(attackerState) > LIVES_OF(checkerState))) continue;
-              }
+            // B) Only a friendly piece with more lives than the checker may capture that checker
+            if (checkingSquares.size > 0 && m.flags.includes('c') && checkingSquares.has(m.to)) {
+              const attackerState = roster.get(fromSq); const checkerState = roster.get(m.to);
+              if (!(LIVES_OF(attackerState) > LIVES_OF(checkerState))) continue;
             }
             res.push(m);
           }
           return res;
         }
 
-        // --- Core move pipeline (DBZ rules + chess.js) ---
+        // --- Core move pipeline ---
         function doMove(from, to, promotion) {
           const beforeFEN = fenBefore.current || game.fen();
           pushHistory(beforeFEN);
@@ -449,126 +389,60 @@
           const wasCapture = !!attempted.captured || attempted.flags.includes('e');
           const isPromotion = !!attempted.promotion;
 
-          // En passant defender square
+          // En passant defender square (logic only)
           let defenderSquare = to;
-          if (attempted.flags.includes('e')) {
-            defenderSquare = attempted.color === 'w' ? to[0] + (parseInt(to[1]) - 1) : to[0] + (parseInt(to[1]) + 1);
-          }
+          if (attempted.flags.includes('e')) { defenderSquare = attempted.color === 'w' ? to[0] + (parseInt(to[1]) - 1) : to[0] + (parseInt(to[1]) + 1); }
           const moverStateBefore = roster.get(from);
           const defenderStateBefore = roster.get(defenderSquare);
 
           if (!wasCapture) {
             // Castling: mirror rook move in roster
             if (attempted.flags.includes('k') || attempted.flags.includes('q')) {
-              const isWhite = attempted.color === 'w';
-              const isKingSide = attempted.flags.includes('k');
+              const isWhite = attempted.color === 'w'; const isKingSide = attempted.flags.includes('k');
               const rookFrom = isKingSide ? (isWhite ? 'h1' : 'h8') : (isWhite ? 'a1' : 'a8');
               const rookTo   = isKingSide ? (isWhite ? 'f1' : 'f8') : (isWhite ? 'd1' : 'd8');
-              setRoster(prev => {
-                const m = new Map(prev);
-                const king = m.get(from); if (king) { m.delete(from); m.set(to, king); }
-                const rook = m.get(rookFrom); if (rook) { m.delete(rookFrom); m.set(rookTo, rook); }
-                return m;
-              });
+              setRoster(prev => { const m = new Map(prev); const king = m.get(from); if (king) { m.delete(from); m.set(to, king); } const rook = m.get(rookFrom); if (rook) { m.delete(rookFrom); m.set(rookTo, rook); } return m; });
               refreshStatus(); setTimeout(maybeEngineTurn, 0); return;
             }
             // Promotion reskin (quiet move)
             if (isPromotion) {
-              setRoster(prev => {
-                const moverPrev = prev.get(from); if (!moverPrev) return prev;
-                const promoted = { ...moverPrev, char: 'grand_priest', forms: ['grand_priest'], formIdx: 0, maxForm: 0 };
-                const m = new Map(prev); m.delete(from); m.set(to, promoted); return m;
-              });
+              setRoster(prev => { const m = new Map(prev); const moverPrev = m.get(from); if (!moverPrev) return prev; const promoted = { ...moverPrev, char: 'grand_priest', forms: ['grand_priest'], formIdx: 0, maxForm: 0 }; m.delete(from); m.set(to, promoted); return m; });
               refreshStatus(); setTimeout(maybeEngineTurn, 0); return;
             }
             // Regular quiet move
             syncRosterOnMove(from, to); refreshStatus(); maybeEngineTurn(); return;
           }
 
-          // -------- ATTACK path (capture / hit) with modified DBZ rules --------
+          // Capture path
           const moverState = moverStateBefore; const defenderState = defenderStateBefore;
 
           // Visual trail
-          drawAttackLine({ from, to: defenderSquare }, attempted.color);
+          drawAttackLine({ from, to: attempted.to }, attempted.color);
 
-          // KING-SPECIFIC: If target is king and attacker has >0 lives, forbid king counter-attacks already via filter.
-          // Here, if we actually captured a king, proceed normally (game over). The capturing piece replaces king by chess rules.
-
-          if (defenderStateBefore && TYPE_ALLOWED['k'].has(defenderStateBefore.char)) {
-            // Allow capture; standard chess.js will mark checkmate appropriately later.
-            // Roster updated below in generic capture path.
-          }
-
-          // Modified power interaction:
           const attackerPower = POWER_OF(moverState);
           const defenderPower = POWER_OF(defenderState);
           const defenderHasLives = LIVES_OF(defenderState) > 0;
 
-          // Rule C: Instant defeat if attacker power strictly greater than defender power — attacker gains +1 power (only), capture piece.
+          // C) Overpower: attacker power > defender power
           if (defenderState && attackerPower > defenderPower) {
-            setRoster(prev => {
-              const m = new Map(prev);
-              let boosted = { ...(m.get(from) || moverState) };
-              // +1 power cap at max form
-              const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + 1);
-              boosted.formIdx = newLevel; boosted = bumpMaxForm(boosted, newLevel);
-              boosted.kills = (boosted.kills || 0) + 1; boosted.life = (boosted.life || 0) + 1; // keep life+1 on kill
-              m.delete(from); m.set(to, boosted);
-              if (attempted.flags.includes('e')) m.delete(defenderSquare);
-              return m;
-            });
-            recordCaptureGlyph(attempted);
-            flashNotice('Overpower! (+1)');
-            refreshStatus(); maybeEngineTurn(); return;
+            setRoster(prev => { const m = new Map(prev); let boosted = { ...(m.get(from) || moverState) }; const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + 1); boosted.formIdx = newLevel; boosted = bumpMaxForm(boosted, newLevel); boosted.kills = (boosted.kills || 0) + 1; boosted.life = (boosted.life || 0) + 1; m.delete(from); m.set(to, boosted); if (attempted.flags.includes('e')) m.delete(defenderSquare); return m; });
+            recordCaptureGlyph(attempted); flashNotice('Overpower! (+1)'); refreshStatus(); maybeEngineTurn(); return;
           }
 
-          // Rule D: Otherwise, if defender still has lives (>0): downgrade defender one level, positions unchanged, pass turn.
+          // D) Defender has lives & higher form to downgrade
           if (defenderState && defenderHasLives && (defenderState.formIdx ?? 0) > 0) {
-            const nextForm = Math.max(0, defenderState.formIdx - 1);
-            setRoster(prev => {
-              const curr = prev.get(defenderSquare); if (!curr) return prev;
-              const m = new Map(prev); m.set(defenderSquare, { ...curr, formIdx: nextForm }); return m;
-            });
-            const toggledFen = toggleTurnFen(beforeFEN, attempted.color);
-            const reverted = new Chess(toggledFen);
-            setGame(reverted);
-            flashNotice('Hit! Defender level ↓');
-            refreshStatus(); setTimeout(() => { if (!engineThinks) maybeEngineTurn(); }, 0);
-            return;
+            setRoster(prev => { const m = new Map(prev); const curr = m.get(defenderSquare); if (!curr) return prev; const nextForm = Math.max(0, curr.formIdx - 1); m.set(defenderSquare, { ...curr, formIdx: nextForm }); return m; });
+            const toggledFen = toggleTurnFen(beforeFEN, attempted.color); const reverted = new Chess(toggledFen); setGame(reverted);
+            flashNotice('Hit! Defender level ↓'); refreshStatus(); setTimeout(() => { if (!engineThinks) maybeEngineTurn(); }, 0); return;
           }
 
-          // Rule E: Base defender or no lives left — capture normally. Attacker gains only +1 power (not defenderOriginal+1).
-          if (moverState) {
-            setRoster(prev => {
-              const m = new Map(prev);
-              let boosted = { ...(m.get(from) || moverState) };
-              const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + 1);
-              boosted.formIdx = newLevel; boosted = bumpMaxForm(boosted, newLevel);
-              boosted.kills = (boosted.kills || 0) + 1; boosted.life = (boosted.life || 0) + 1;
-              if (isPromotion) { boosted.char = 'grand_priest'; boosted.forms = ['grand_priest']; boosted.formIdx = 0; boosted.maxForm = 0; }
-              m.delete(from); m.set(to, boosted);
-              if (attempted.flags.includes('e')) m.delete(defenderSquare);
-              return m;
-            });
-            recordCaptureGlyph(attempted);
-            flashNotice('Power up! (+1)');
-            refreshStatus(); maybeEngineTurn(); return;
-          } else {
-            syncRosterOnMove(from, to);
-            refreshStatus(); maybeEngineTurn(); return;
-          }
+          // E) Base or no lives — normal capture with +1 level & life
+          setRoster(prev => { const m = new Map(prev); let boosted = { ...(m.get(from) || moverState) }; const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + 1); boosted.formIdx = newLevel; boosted = bumpMaxForm(boosted, newLevel); boosted.kills = (boosted.kills || 0) + 1; boosted.life = (boosted.life || 0) + 1; if (isPromotion) { boosted.char = 'grand_priest'; boosted.forms = ['grand_priest']; boosted.formIdx = 0; boosted.maxForm = 0; } m.delete(from); m.set(to, boosted); if (attempted.flags.includes('e')) m.delete(defenderSquare); return m; });
+          recordCaptureGlyph(attempted); flashNotice('Power up! (+1)'); refreshStatus(); maybeEngineTurn(); return;
         }
 
-        function recordCaptureGlyph(attempted) {
-          const capType = attempted.captured || (attempted.flags.includes('e') ? 'p' : null);
-          if (!capType) return;
-          if (attempted.color === 'w') setCapturedByWhite(prev => [...prev, capType]);
-          else setCapturedByBlack(prev => [...prev, capType]);
-        }
-
-        function syncRosterOnMove(from, to) {
-          setRoster(prev => { const st = prev.get(from); if (!st) return prev; const m = new Map(prev); m.delete(from); m.set(to, st); return m; });
-        }
+        function recordCaptureGlyph(attempted) { const capType = attempted.captured || (attempted.flags.includes('e') ? 'p' : null); if (!capType) return; if (attempted.color === 'w') setCapturedByWhite(prev => [...prev, capType]); else setCapturedByBlack(prev => [...prev, capType]); }
+        function syncRosterOnMove(from, to) { setRoster(prev => { const m = new Map(prev); const st = m.get(from); if (!st) return prev; m.delete(from); m.set(to, st); return m; }); }
 
         // ---------- ENGINE WIRING ----------
         function isAiTurn() { const t = game.turn(); return (t === 'w' && aiWhite) || (t === 'b' && aiBlack); }
@@ -592,19 +466,10 @@
               pendingBest.current = uci; applyBestMove();
             }
           };
-          eng.onerror = (err) => {
-            logEngine('ERR', `Engine worker error: ${err?.message || err}`); engineBooting.current = false; try { engineRef.current?.terminate?.(); } catch (_) {}
-            engineRef.current = null; setEngineReady(false); setEngineThinks(false); setTimeout(() => bootEngine(), 50);
-          };
+          eng.onerror = (err) => { logEngine('ERR', `Engine worker error: ${err?.message || err}`); engineBooting.current = false; try { engineRef.current?.terminate?.(); } catch (_) {} engineRef.current = null; setEngineReady(false); setEngineThinks(false); setTimeout(() => bootEngine(), 50); };
           post('uci');
         }
-        function applyStrengthFor(color) {
-          const prof = hardnessProfile(hardness); const elo = prof.elo; if (!engineRef.current) return;
-          post(`setoption name UCI_LimitStrength value true`);
-          post(`setoption name UCI_Elo value ${elo}`);
-          const skill = Math.min(20, Math.max(0, Math.round((elo - 800) / 100)));
-          post(`setoption name Skill Level value ${skill}`);
-        }
+        function applyStrengthFor(color) { const prof = hardnessProfile(hardness); const elo = prof.elo; if (!engineRef.current) return; post(`setoption name UCI_LimitStrength value true`); post(`setoption name UCI_Elo value ${elo}`); const skill = Math.min(20, Math.round((elo - 800) / 100)); post(`setoption name Skill Level value ${Math.max(0, skill)}`); }
         function enginePositionAndGo() {
           if (!engineRef.current || !engineReady) return; if (engineThinks) return;
           const t = game.turn(); if ((t === 'w' && !aiWhite) || (t === 'b' && !aiBlack)) return;
@@ -613,6 +478,8 @@
           post(`position fen ${fen}`);
           if (prof.movetime && prof.movetime > 0) post(`go movetime ${prof.movetime}`); else post(`go depth ${prof.depth}`);
           setEngineThinks(true);
+          if (thinkWatchdog.current) clearTimeout(thinkWatchdog.current);
+          thinkWatchdog.current = setTimeout(() => { if(engineThinks){ post('stop'); setEngineThinks(false); } }, 8000);
         }
         function applyBestMove() {
           const uci = pendingBest.current; if (!uci || game.isGameOver()) return;
@@ -633,9 +500,7 @@
               <div style={{fontSize:'20px', fontWeight:600, marginBottom:'12px'}}>DragonBall Chess</div>
               <div className="relative">
                 <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} trailRef={trailRef} />
-                {engineThinks && (
-                  <div style={{ position: 'absolute', right: '8px', top: '8px', background: 'rgba(2,6,23,0.7)', padding: '6px 10px', borderRadius: '10px', fontSize: '12px' }}>Stockfish thinking…</div>
-                )}
+                {engineThinks && (<div style={{ position: 'absolute', right: '8px', top: '8px', background: 'rgba(2,6,23,0.7)', padding: '6px 10px', borderRadius: '10px', fontSize: '12px' }}>Stockfish thinking…</div>)}
               </div>
               <div className="row" style={{marginTop:'16px', justifyContent:'space-between'}}>
                 <div className="status">{status}</div>
@@ -759,17 +624,15 @@ assets/pieces/grand_priest/grand_priest.png
                 const dbz = roster.get(sq);
                 const isSel = selected === sq;
                 const isLegal = legal.has(sq);
-                const hide =
-                  fog &&
-                  ((game.turn() === 'w' && r > 4 && (!p || p.color !== 'w')) ||
-                   (game.turn() === 'b' && r < 5 && (!p || p.color !== 'b')));
+                // Fix #5: allow clicks through fog (mask is visual only)
+                const hide = fog && ((game.turn() === 'w' && r > 4 && (!p || p.color !== 'w')) || (game.turn() === 'b' && r < 5 && (!p || p.color !== 'b')));
                 const teamClass = p ? (p.color === 'w' ? 'team-w' : 'team-b') : '';
 
                 return (
                   <div
                     key={sq}
-                    onClick={() => !hide && onSquareClick(sq)}
-                    className={`relative square flex items-center justify-center select-none ${hide ? 'cursor-not-allowed' : 'cursor-pointer'} ${dark ? 'dark' : 'light'} ${isSel ? 'highlight' : ''} ${teamClass}`}
+                    onClick={() => onSquareClick(sq)}
+                    className={`relative square flex items-center justify-center select-none cursor-pointer ${dark ? 'dark' : 'light'} ${isSel ? 'highlight' : ''} ${teamClass}`}
                     style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
                     {hide && <div className="absolute inset-0 mask" style={{ position: 'absolute', inset: 0 }}></div>}
@@ -780,13 +643,7 @@ assets/pieces/grand_priest/grand_priest.png
                       <>
                         <div className="team-ring" />
                         <div className="piece-layer">
-                          <img
-                            className="piece-img"
-                            draggable="false"
-                            src={spriteUrl(dbz.char, dbz.forms[dbz.formIdx])}
-                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                            alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`}
-                          />
+                          <img className="piece-img" draggable="false" src={spriteUrl(dbz.char, dbz.forms[dbz.formIdx])} onError={(e) => { e.currentTarget.style.display = 'none'; }} alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`} />
                         </div>
                         <div className="piece-badge">{dbz.forms[dbz.formIdx]} · ❤{dbz.life}</div>
                       </>
@@ -806,14 +663,10 @@ assets/pieces/grand_priest/grand_priest.png
       window.__mountApp = function () {
         try {
           if (!window.Chess) throw new Error('Chess not loaded');
-          const rootEl = document.getElementById('root');
-          if (!rootEl) throw new Error('#root not found');
+          const rootEl = document.getElementById('root'); if (!rootEl) throw new Error('#root not found');
           ReactDOM.createRoot(rootEl).render(<App />);
           __log('Mounted OK');
-        } catch (err) {
-          __log('Mount failed:', err.message);
-          throw err;
-        }
+        } catch (err) { __log('Mount failed:', err.message); throw err; }
       };
 
       setTimeout(() => { try { window.__mountApp(); } catch(_) {} }, 0);
@@ -825,23 +678,17 @@ assets/pieces/grand_priest/grand_priest.png
     async function loadChessAndBoot() {
       const tryImport = async (url) => { __log('Importing', url); const m = await import(url); return m.Chess || m.default || m; };
       let ChessCtor = null;
-      try {
-        ChessCtor = await tryImport('https://cdn.jsdelivr.net/npm/chess.js@1.4.0/dist/esm/chess.js');
-      } catch (e1) {
-        try {
-          ChessCtor = await tryImport('https://unpkg.com/chess.js@1.4.0/dist/esm/chess.js');
-        } catch (e2) {
+      try { ChessCtor = await tryImport('https://cdn.jsdelivr.net/npm/chess.js@1.4.0/dist/esm/chess.js'); }
+      catch (e1) {
+        try { ChessCtor = await tryImport('https://unpkg.com/chess.js@1.4.0/dist/esm/chess.js'); }
+        catch (e2) {
           __log('ESM failed, falling back to UMD…');
           await new Promise((resolve, reject) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js'; s.onload = resolve; s.onerror = reject; document.head.appendChild(s); });
           ChessCtor = window.Chess;
           if (ChessCtor) {
             __log('UMD loaded');
             const _proto = ChessCtor.prototype;
-            _proto.isGameOver = _proto.game_over;
-            _proto.isCheck = _proto.in_check;
-            _proto.isCheckmate = _proto.in_checkmate;
-            _proto.isStalemate = _proto.in_stalemate;
-            _proto.isDraw = _proto.in_draw;
+            _proto.isGameOver = _proto.game_over; _proto.isCheck = _proto.in_check; _proto.isCheckmate = _proto.in_checkmate; _proto.isStalemate = _proto.in_stalemate; _proto.isDraw = _proto.in_draw;
           }
         }
       }
