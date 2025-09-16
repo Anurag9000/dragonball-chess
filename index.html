@@ -539,7 +539,7 @@
             });
 
             const before = game.fen(); // safer than fenBefore.current for engine
-            const toggledFen = toggleTurnFen(before, attempted.color);
+            const toggledFen = toggleTurnFen(beforeFEN, attempted.color); // use pre-move FEN
             setGame(new Chess(toggledFen));
 
             flashNotice('Hit absorbed! Defender life-1, level ↓');
