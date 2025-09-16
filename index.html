@@ -526,11 +526,26 @@
             recordCaptureGlyph(attempted); flashNotice('Overpower! (+1)'); refreshStatus(); maybeEngineTurn(); return;
           }
 
-          // D) Defender has lives & higher form to downgrade
-          if (defenderState && defenderHasLives && (defenderState.formIdx ?? 0) > 0) {
-            setRoster(prev => { const m = new Map(prev); const curr = m.get(defenderSquare); if (!curr) return prev; const nextForm = Math.max(0, curr.formIdx - 1); m.set(defenderSquare, { ...curr, formIdx: nextForm }); return m; });
-            const toggledFen = toggleTurnFen(beforeFEN, attempted.color); const reverted = new Chess(toggledFen); setGame(reverted);
-            flashNotice('Hit! Defender level ↓'); refreshStatus(); setTimeout(() => { if (!engineThinks) maybeEngineTurn(); }, 0); return;
+          // D) Defender soaks the hit if it has lives and power >= attacker's power
+          if (defenderState && defenderHasLives && (defenderPower >= attackerPower)) {
+            setRoster(prev => {
+              const m = new Map(prev);
+              const curr = m.get(defenderSquare);
+              if (!curr) return prev;
+              const nextForm = Math.max(0, (curr.formIdx ?? 0) - 1);
+              const nextLives = Math.max(0, (curr.life ?? 0) - 1); // <<< lose a life on hit
+              m.set(defenderSquare, { ...curr, formIdx: nextForm, life: nextLives });
+              return m;
+            });
+
+            const before = game.fen(); // safer than fenBefore.current for engine
+            const toggledFen = toggleTurnFen(before, attempted.color);
+            setGame(new Chess(toggledFen));
+
+            flashNotice('Hit absorbed! Defender life-1, level ↓');
+            refreshStatus();
+            setTimeout(() => { if (!engineThinks) maybeEngineTurn(); }, 0);
+            return;
           }
 
           // E) Base or no lives — normal capture with +1 level & life
@@ -559,6 +574,55 @@
           });
 
           recordCaptureGlyph(attempted); flashNotice('Power up! (+1)'); refreshStatus(); maybeEngineTurn(); return;
+        }
+
+        function dbzOutcomeForAttempt(game, roster, from, to, promotion) {
+          // Copy what you compute in doMove:
+          const attempted = game.move({ from, to, promotion: promotion || 'q' });
+          if (!attempted) return { kind: 'illegal' }; // not even chess-legal
+          game.undo();
+
+          const attacker = roster.get(from);
+          const targetSq = attempted.flags.includes('e')
+            ? (attempted.color === 'w' ? to[0] + (parseInt(to[1]) - 1) : to[0] + (parseInt(to[1]) + 1))
+            : to;
+          const defender  = roster.get(targetSq);
+
+          // While-in-check constraints (mirror your filter for engine too)
+          const checkingSquares = attackersOfKing(game.get(from)?.color);
+          if (checkingSquares.size > 0) {
+            // A) King cannot capture a checker with lives > 0
+            if (game.get(from)?.type === 'k' && checkingSquares.has(to) && (LIVES_OF(defender) > 0)) {
+              return { kind: 'illegal' };
+            }
+            // B) Only piece with more lives than checker may capture that checker
+            if (attempted.flags.includes('c') && checkingSquares.has(to)) {
+              if (!((LIVES_OF(attacker) || 0) > (LIVES_OF(defender) || 0))) {
+                return { kind: 'illegal' };
+              }
+            }
+          }
+
+          if (!attempted.captured && !attempted.flags.includes('e')) {
+            return { kind: 'quiet' };
+          }
+
+          // Capture path — compare powers correctly
+          const attackerPower = POWER_OF(attacker);
+          const defenderPower = POWER_OF(defender);
+          const defenderLives = LIVES_OF(defender);
+
+          if (attackerPower > defenderPower) {
+            return { kind: 'capture_overpower' }; // C
+          }
+
+          // D) defender soaks the hit if it has lives and is >= attacker's power
+          if (defender && defenderLives > 0 && defenderPower >= attackerPower) {
+            return { kind: 'hit_no_capture' };
+          }
+
+          // E) normal capture (base or no lives, or weaker defender)
+          return { kind: 'capture_normal', isPromotion: !!attempted.promotion, prom: attempted.promotion };
         }
 
         function recordCaptureGlyph(attempted) { const capType = attempted.captured || (attempted.flags.includes('e') ? 'p' : null); if (!capType) return; if (attempted.color === 'w') setCapturedByWhite(prev => [...prev, capType]); else setCapturedByBlack(prev => [...prev, capType]); }
@@ -615,13 +679,27 @@
           }, 8000);
         }
 
-        function applyBestMove() {
-          const uci = pendingBest.current; if (!uci || game.isGameOver()) return;
-          const from = uci.slice(0, 2); const to = uci.slice(2, 4); const prom = uci.length > 4 ? uci[4] : undefined;
-          const legalNow = game.moves({ verbose: true }).some(m => m.from === from && m.to === to && (!m.promotion || m.promotion === prom));
-          if (!legalNow) { console.warn('[DBZ] Desync: engine suggested illegal move', uci, 'for', game.fen()); pendingBest.current = null; setEngineThinks(false); setTimeout(enginePositionAndGo, 0); return; }
-          doMove(from, to, prom); pendingBest.current = null; const aivai = aiWhite && aiBlack; if (aivai && !game.isGameOver()) { setTimeout(enginePositionAndGo, 50); }
+      function applyBestMove() {
+        const uci = pendingBest.current; if (!uci || game.isGameOver()) return;
+        const from = uci.slice(0, 2), to = uci.slice(2, 4), prom = uci[4];
+
+        // Check *DBZ* legality & outcome before applying:
+        const out = dbzOutcomeForAttempt(game, roster, from, to, prom);
+        if (out.kind === 'illegal') { 
+          // Reject this move; ask engine again
+          pendingBest.current = null;
+          setEngineThinks(false);
+          setTimeout(enginePositionAndGo, 0);
+          return;
         }
+
+        // Apply move with your existing doMove logic; it already handles C/D/E visuals.
+        doMove(from, to, prom);
+        pendingBest.current = null;
+
+        const aivai = aiWhite && aiBlack;
+        if (aivai && !game.isGameOver()) setTimeout(enginePositionAndGo, 50);
+      }
 
         function maybeEngineTurn() { if (!isAiTurn()) return; if (!engineRef.current) { bootEngine(); return; } if (!engineReady) return; if (!engineThinks) enginePositionAndGo(); }
 
