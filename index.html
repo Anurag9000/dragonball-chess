@@ -89,6 +89,15 @@
       function sqToFR(sq){ const f = FILES.indexOf(sq[0]); const rNum = parseInt(sq[1],10); const rIdx = 8 - rNum; return { f, rNum, rIdx }; }
       function frToSq(f, rNum){ if(f<0||f>7||rNum<1||rNum>8) return null; return FILES[f] + String(rNum); }
 
+      // --- Promotion mapping (UI choices → DBZ character for your uniform set)
+      const PROMO_OPTIONS = ['q','r','b','n'];
+      const PROMO_CHAR = {
+        q: 'grand_priest',
+        r: 'goku',
+        b: 'vegeta',
+        n: 'gohan_kid',
+      };
+
       // DBZ forms
       const FORMS = {
         goku: ['base', 'kaioken', 'ssj','ssj2','ssj3', 'ssj4', 'ssg', 'ssb', 'ssb_kaioken', 'ui','mui'],
@@ -102,13 +111,25 @@
 
       function spriteUrl(char, formKey) { return `assets/pieces/${char}/${formKey}.png`; }
 
-      // Mapping guards
+      // // Mapping guards
+      // const TYPE_ALLOWED = {
+      //   k: new Set(['zeno']), q: new Set(['grand_priest']), r: new Set(['goku','vegeta']),
+      //   b: new Set(['majin_boo','gotenks']), n: new Set(['gohan_kid','frieza']),
+      //   p: new Set(['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']),
+      // };
+      
       const TYPE_ALLOWED = {
-        k: new Set(['zeno']), q: new Set(['grand_priest']), r: new Set(['goku','vegeta']),
-        b: new Set(['majin_boo','gotenks']), n: new Set(['gohan_kid','frieza']),
-        p: new Set(['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']),
+        k: new Set(['zeno']),
+        q: new Set(['grand_priest']),
+        r: new Set(['goku']),
+        b: new Set(['vegeta']),
+        n: new Set(['gohan_kid']),
+        p: new Set(['saibaman']),
       };
-      const PAWN_FILES_DEFAULT = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18'];
+
+      // const PAWN_FILES_DEFAULT = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18'];
+
+      const PAWN_FILES_DEFAULT = Array(8).fill('saibaman');
 
       const POWER_OF = st => (st?.formIdx ?? 0);
       const LIVES_OF = st => (st?.life ?? 0);
@@ -129,7 +150,7 @@
             if (p.type === 'k') char = 'zeno';
             else if (p.type === 'q') char = 'grand_priest';
             else if (p.type === 'r') char = 'goku';
-            else if (p.type === 'b') char = 'majin_boo';
+            else if (p.type === 'b') char = 'vegeta';
             else if (p.type === 'n') char = 'gohan_kid';
             else if (p.type === 'p') { const fileIdx = FILES.indexOf(f); char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman'; }
             const { forms, formIdx } = clampForm(char, 0);
@@ -140,16 +161,25 @@
             if (!allowed.has(char)) {
               if (p.type === 'k') char = 'zeno';
               else if (p.type === 'q') char = 'grand_priest';
-              else if (p.type === 'r') char = ['goku','vegeta'].includes(dbz.char) ? dbz.char : 'goku';
-              else if (p.type === 'b') char = ['majin_boo','gotenks'].includes(dbz.char) ? dbz.char : 'majin_boo';
-              else if (p.type === 'n') char = ['gohan_kid','frieza'].includes(dbz.char) ? dbz.char : 'gohan_kid';
-              else if (p.type === 'p') { if (!TYPE_ALLOWED.p.has(char)) { const fileIdx = FILES.indexOf(f); char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman'; } }
+              else if (p.type === 'r') char = 'goku';
+              else if (p.type === 'b') char = 'vegeta';
+              else if (p.type === 'n') char = 'gohan_kid';
+              else if (p.type === 'p') {
+                if (!TYPE_ALLOWED.p.has(char)) {
+                  const fileIdx = FILES.indexOf(f);
+                  char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman';
+                }
+              }
               const { forms, formIdx } = clampForm(char, dbz.formIdx ?? 0);
               dbz = { ...dbz, char, forms, formIdx }; changed = true;
             } else {
               const { forms, formIdx } = clampForm(char, dbz.formIdx ?? 0);
-              let maxForm = dbz.maxForm ?? formIdx; if (maxForm < formIdx) maxForm = formIdx; if (maxForm > forms.length - 1) maxForm = forms.length - 1;
-              if (forms !== dbz.forms || formIdx !== dbz.formIdx || maxForm !== dbz.maxForm) { dbz = { ...dbz, forms, formIdx, maxForm }; changed = true; }
+              let maxForm = dbz.maxForm ?? formIdx;
+              if (maxForm < formIdx) maxForm = formIdx;
+              if (maxForm > forms.length - 1) maxForm = forms.length - 1;
+              if (forms !== dbz.forms || formIdx !== dbz.formIdx || maxForm !== dbz.maxForm) {
+                dbz = { ...dbz, forms, formIdx, maxForm }; changed = true;
+              }
             }
             if (dbz.color !== p.color) { dbz = { ...dbz, color: p.color }; changed = true; }
           }
@@ -158,18 +188,56 @@
         return [out, changed];
       }
 
+      // function initialRoster() {
+      //   const m = new Map();
+      //   // White back rank
+      //   m.set('a1', mk('w','goku')); m.set('b1', mk('w','gohan_kid')); m.set('c1', mk('w','majin_boo')); m.set('d1', mk('w','grand_priest')); m.set('e1', mk('w','zeno')); m.set('f1', mk('w','gotenks')); m.set('g1', mk('w','frieza')); m.set('h1', mk('w','vegeta'));
+      //   // White pawns
+      //   ['a2','b2','c2','d2','e2','f2','g2','h2'].forEach((sq, i) => { const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']; m.set(sq, mk('w', order[i])); });
+      //   // Black back rank
+      //   m.set('a8', mk('b','goku')); m.set('b8', mk('b','gohan_kid')); m.set('c8', mk('b','majin_boo')); m.set('d8', mk('b','grand_priest')); m.set('e8', mk('b','zeno')); m.set('f8', mk('b','gotenks')); m.set('g8', mk('b','frieza')); m.set('h8', mk('b','vegeta'));
+      //   // Black pawns
+      //   ['a7','b7','c7','d7','e7','f7','g7','h7'].forEach((sq, i) => { const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']; m.set(sq, mk('b', order[i])); });
+      //   return m;
+      //   function mk(color, char) { const forms = FORMS[char] ?? ['base']; return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms }; }
+      // }
+
       function initialRoster() {
         const m = new Map();
         // White back rank
-        m.set('a1', mk('w','goku')); m.set('b1', mk('w','gohan_kid')); m.set('c1', mk('w','majin_boo')); m.set('d1', mk('w','grand_priest')); m.set('e1', mk('w','zeno')); m.set('f1', mk('w','gotenks')); m.set('g1', mk('w','frieza')); m.set('h1', mk('w','vegeta'));
-        // White pawns
-        ['a2','b2','c2','d2','e2','f2','g2','h2'].forEach((sq, i) => { const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']; m.set(sq, mk('w', order[i])); });
+        m.set('a1', mk('w','goku')); 
+        m.set('b1', mk('w','gohan_kid')); 
+        m.set('c1', mk('w','vegeta')); 
+        m.set('d1', mk('w','grand_priest')); 
+        m.set('e1', mk('w','zeno')); 
+        m.set('f1', mk('w','vegeta')); 
+        m.set('g1', mk('w','gohan_kid')); 
+        m.set('h1', mk('w','goku'));
+
+        // White pawns (all saibaman)
+        ['a2','b2','c2','d2','e2','f2','g2','h2']
+          .forEach(sq => m.set(sq, mk('w', 'saibaman')));
+
         // Black back rank
-        m.set('a8', mk('b','goku')); m.set('b8', mk('b','gohan_kid')); m.set('c8', mk('b','majin_boo')); m.set('d8', mk('b','grand_priest')); m.set('e8', mk('b','zeno')); m.set('f8', mk('b','gotenks')); m.set('g8', mk('b','frieza')); m.set('h8', mk('b','vegeta'));
-        // Black pawns
-        ['a7','b7','c7','d7','e7','f7','g7','h7'].forEach((sq, i) => { const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']; m.set(sq, mk('b', order[i])); });
+        m.set('a8', mk('b','goku')); 
+        m.set('b8', mk('b','gohan_kid')); 
+        m.set('c8', mk('b','vegeta')); 
+        m.set('d8', mk('b','grand_priest')); 
+        m.set('e8', mk('b','zeno')); 
+        m.set('f8', mk('b','vegeta')); 
+        m.set('g8', mk('b','gohan_kid')); 
+        m.set('h8', mk('b','goku'));
+
+        // Black pawns (all saibaman)
+        ['a7','b7','c7','d7','e7','f7','g7','h7']
+          .forEach(sq => m.set(sq, mk('b', 'saibaman')));
+
         return m;
-        function mk(color, char) { const forms = FORMS[char] ?? ['base']; return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms }; }
+
+        function mk(color, char) {
+          const forms = FORMS[char] ?? ['base'];
+          return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms };
+        }
       }
 
       // ---------- Main App ----------
@@ -180,10 +248,17 @@
         const [legal, setLegal] = useState(new Set());
         const [status, setStatus] = useState('');
         const fenBefore = useRef('');
-
         const [toast, setToast] = useState(null);
         const [fog, setFog] = useState(false);
         const trailRef = useRef(null);
+        // Promotion UI state: when a pawn reaches last rank and user must choose
+        const [promo, setPromo] = useState(null); // { from, to, color } | null
+
+        function needsPromotion(from, to) {
+          const p = game.get(from); if (!p || p.type !== 'p') return false;
+          const rank = parseInt(to[1], 10);
+          return (p.color === 'w' && rank === 8) || (p.color === 'b' && rank === 1);
+        }
 
         // Normalize guards after every position change
         useEffect(() => {
@@ -356,7 +431,19 @@
             const filtered = filterMovesByDBZRules(baseMoves, sq);
             setSelected(sq); setLegal(new Set(filtered.map(m => m.to))); fenBefore.current = game.fen(); return;
           }
-          if (legal.has(sq)) doMove(selected, sq);
+
+          if (legal.has(sq)) {
+            // Promotion
+            if (needsPromotion(selected, sq)) {
+              // Pause engine while user chooses
+              try { post('stop'); } catch (_) {}
+              setEngineThinks(false);
+              setPromo({ from: selected, to: sq, color: game.get(selected).color });
+            } else {
+              doMove(selected, sq);
+            }
+          }
+
           setSelected(null); setLegal(new Set());
         }
 
@@ -404,11 +491,21 @@
               setRoster(prev => { const m = new Map(prev); const king = m.get(from); if (king) { m.delete(from); m.set(to, king); } const rook = m.get(rookFrom); if (rook) { m.delete(rookFrom); m.set(rookTo, rook); } return m; });
               refreshStatus(); setTimeout(maybeEngineTurn, 0); return;
             }
-            // Promotion reskin (quiet move)
+            // Promotion reskin
             if (isPromotion) {
-              setRoster(prev => { const m = new Map(prev); const moverPrev = m.get(from); if (!moverPrev) return prev; const promoted = { ...moverPrev, char: 'grand_priest', forms: ['grand_priest'], formIdx: 0, maxForm: 0 }; m.delete(from); m.set(to, promoted); return m; });
+              const promCode = attempted.promotion || promotion || 'q';
+              const newChar = PROMO_CHAR[promCode] || 'grand_priest';
+              const newForms = FORMS[newChar] || ['base'];
+              setRoster(prev => {
+                const m = new Map(prev);
+                const moverPrev = m.get(from); if (!moverPrev) return prev;
+                const promoted = { ...moverPrev, char: newChar, forms: newForms, formIdx: 0, maxForm: 0 };
+                m.delete(from); m.set(to, promoted);
+                return m;
+              });
               refreshStatus(); setTimeout(maybeEngineTurn, 0); return;
             }
+
             // Regular quiet move
             syncRosterOnMove(from, to); refreshStatus(); maybeEngineTurn(); return;
           }
@@ -437,7 +534,30 @@
           }
 
           // E) Base or no lives — normal capture with +1 level & life
-          setRoster(prev => { const m = new Map(prev); let boosted = { ...(m.get(from) || moverState) }; const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + 1); boosted.formIdx = newLevel; boosted = bumpMaxForm(boosted, newLevel); boosted.kills = (boosted.kills || 0) + 1; boosted.life = (boosted.life || 0) + 1; if (isPromotion) { boosted.char = 'grand_priest'; boosted.forms = ['grand_priest']; boosted.formIdx = 0; boosted.maxForm = 0; } m.delete(from); m.set(to, boosted); if (attempted.flags.includes('e')) m.delete(defenderSquare); return m; });
+          setRoster(prev => {
+            const m = new Map(prev);
+            let boosted = { ...(m.get(from) || moverState) };
+            const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + 1);
+            boosted.formIdx = newLevel;
+            boosted = bumpMaxForm(boosted, newLevel);
+            boosted.kills = (boosted.kills || 0) + 1;
+            boosted.life = (boosted.life || 0) + 1;
+
+            if (isPromotion) {
+              const promCode = attempted.promotion || promotion || 'q';
+              const newChar = PROMO_CHAR[promCode] || 'grand_priest';
+              boosted.char = newChar;
+              boosted.forms = FORMS[newChar] || ['base'];
+              boosted.formIdx = 0;
+              boosted.maxForm = 0;
+            }
+
+            m.delete(from);
+            m.set(to, boosted);
+            if (attempted.flags.includes('e')) m.delete(defenderSquare);
+            return m;
+          });
+
           recordCaptureGlyph(attempted); flashNotice('Power up! (+1)'); refreshStatus(); maybeEngineTurn(); return;
         }
 
@@ -470,17 +590,25 @@
           post('uci');
         }
         function applyStrengthFor(color) { const prof = hardnessProfile(hardness); const elo = prof.elo; if (!engineRef.current) return; post(`setoption name UCI_LimitStrength value true`); post(`setoption name UCI_Elo value ${elo}`); const skill = Math.min(20, Math.round((elo - 800) / 100)); post(`setoption name Skill Level value ${Math.max(0, skill)}`); }
+
         function enginePositionAndGo() {
-          if (!engineRef.current || !engineReady) return; if (engineThinks) return;
-          const t = game.turn(); if ((t === 'w' && !aiWhite) || (t === 'b' && !aiBlack)) return;
-          post('stop'); const fen = game.fen(); applyStrengthFor(t);
-          const prof = hardnessProfile(hardness); post(`setoption name Hash value ${Math.max(1, Math.min(prof.hash, 32))}`);
+          if (promo) return; // block engine while promotion picker is visible
+          if (!engineRef.current || !engineReady) return;
+          if (engineThinks) return;
+          const t = game.turn();
+          if ((t === 'w' && !aiWhite) || (t === 'b' && !aiBlack)) return;
+          post('stop');
+          const fen = game.fen();
+          applyStrengthFor(t);
+          const prof = hardnessProfile(hardness);
+          post(`setoption name Hash value ${Math.max(1, Math.min(prof.hash, 32))}`);
           post(`position fen ${fen}`);
           if (prof.movetime && prof.movetime > 0) post(`go movetime ${prof.movetime}`); else post(`go depth ${prof.depth}`);
           setEngineThinks(true);
           if (thinkWatchdog.current) clearTimeout(thinkWatchdog.current);
-          thinkWatchdog.current = setTimeout(() => { if(engineThinks){ post('stop'); setEngineThinks(false); } }, 8000);
+          thinkWatchdog.current = setTimeout(() => { if (engineThinks) { post('stop'); setEngineThinks(false); } }, 8000);
         }
+
         function applyBestMove() {
           const uci = pendingBest.current; if (!uci || game.isGameOver()) return;
           const from = uci.slice(0, 2); const to = uci.slice(2, 4); const prom = uci.length > 4 ? uci[4] : undefined;
@@ -488,7 +616,15 @@
           if (!legalNow) { console.warn('[DBZ] Desync: engine suggested illegal move', uci, 'for', game.fen()); pendingBest.current = null; setEngineThinks(false); setTimeout(enginePositionAndGo, 0); return; }
           doMove(from, to, prom); pendingBest.current = null; const aivai = aiWhite && aiBlack; if (aivai && !game.isGameOver()) { setTimeout(enginePositionAndGo, 50); }
         }
-        function maybeEngineTurn() { if (!isAiTurn()) return; if (!engineRef.current) { bootEngine(); return; } if (!engineReady) return; if (!engineThinks) enginePositionAndGo(); }
+
+        function maybeEngineTurn() {
+          if (promo) return; // block engine while promotion picker is visible
+          if (!isAiTurn()) return;
+          if (!engineRef.current) { bootEngine(); return; }
+          if (!engineReady) return;
+          if (!engineThinks) enginePositionAndGo();
+        }
+
         useEffect(() => { if (!engineRef.current) { bootEngine(); return; } bootEngine(); }, [hardness]);
         useEffect(() => { maybeEngineTurn(); }, [aiWhite, aiBlack, game, roster]);
         useEffect(() => () => { try { engineRef.current?.terminate?.(); } catch (_) {} }, []);
@@ -502,6 +638,41 @@
                 <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} trailRef={trailRef} />
                 {engineThinks && (<div style={{ position: 'absolute', right: '8px', top: '8px', background: 'rgba(2,6,23,0.7)', padding: '6px 10px', borderRadius: '10px', fontSize: '12px' }}>Stockfish thinking…</div>)}
               </div>
+              {promo && (
+                <div style={{
+                  position:'fixed', inset:0, background:'rgba(0,0,0,0.55)',
+                  display:'flex', alignItems:'center', justifyContent:'center', zIndex: 9999
+                }}>
+                  <div style={{ background:'#111827', border:'1px solid #374151', borderRadius:12, padding:16, boxShadow:'0 10px 30px rgba(0,0,0,0.5)' }}>
+                    <div style={{ fontWeight:700, marginBottom:10, textAlign:'center' }}>Choose promotion</div>
+                    <div style={{ display:'flex', gap:12 }}>
+                      {PROMO_OPTIONS.map(code => {
+                        const char = PROMO_CHAR[code];
+                        const form = (FORMS[char] || ['base'])[0];
+                        return (
+                          <button key={code}
+                            onClick={() => { setPromo(null); doMove(promo.from, promo.to, code); }}
+                            style={{ background:'#1f2937', border:'1px solid #4b5563', padding:8, borderRadius:10, cursor:'pointer' }}>
+                            <div style={{ width:72, height:72, display:'grid', placeItems:'center' }}>
+                              <img draggable="false" style={{ maxWidth:'100%', maxHeight:'100%' }}
+                                  src={spriteUrl(char, form)}
+                                  onError={e => e.currentTarget.style.display='none'}
+                                  alt={char}/>
+                            </div>
+                            <div style={{ fontSize:12, marginTop:6, textTransform:'uppercase', letterSpacing:0.5, textAlign:'center', opacity:.9 }}>
+                              {({q:'Queen', r:'Rook', b:'Bishop', n:'Knight'})[code]}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ textAlign:'center', marginTop:10 }}>
+                      <button className="btn" onClick={() => setPromo(null)}>Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="row" style={{marginTop:'16px', justifyContent:'space-between'}}>
                 <div className="status">{status}</div>
                 <div className="row">
@@ -578,7 +749,7 @@
                   <li>Instant defeat: Attacker with strictly higher <b>power (form)</b> captures immediately, gains <b>+1 level</b> only.</li>
                   <li>While in check: the <b>King cannot capture</b> a checking piece if that checker has <b>lives &gt; 0</b>; the king must evade.</li>
                   <li>Also while in check: only a friendly piece with <b>more lives</b> than the checker may capture that checker.</li>
-                  <li>Promotions become <b>Grand Priest</b>.</li>
+                  <li>Promotion shows choices (Q/R/B/N). Mapping: Queen→Grand Priest, Rook→Goku, Bishop→Vegeta, Knight→Gohan.</li>
                 </ul>
               </Panel>
 
