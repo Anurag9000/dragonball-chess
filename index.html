@@ -592,21 +592,27 @@
         function applyStrengthFor(color) { const prof = hardnessProfile(hardness); const elo = prof.elo; if (!engineRef.current) return; post(`setoption name UCI_LimitStrength value true`); post(`setoption name UCI_Elo value ${elo}`); const skill = Math.min(20, Math.round((elo - 800) / 100)); post(`setoption name Skill Level value ${Math.max(0, skill)}`); }
 
         function enginePositionAndGo() {
-          if (promo) return; // block engine while promotion picker is visible
           if (!engineRef.current || !engineReady) return;
           if (engineThinks) return;
+
           const t = game.turn();
           if ((t === 'w' && !aiWhite) || (t === 'b' && !aiBlack)) return;
+
           post('stop');
           const fen = game.fen();
           applyStrengthFor(t);
+
           const prof = hardnessProfile(hardness);
           post(`setoption name Hash value ${Math.max(1, Math.min(prof.hash, 32))}`);
           post(`position fen ${fen}`);
-          if (prof.movetime && prof.movetime > 0) post(`go movetime ${prof.movetime}`); else post(`go depth ${prof.depth}`);
+          if (prof.movetime && prof.movetime > 0) post(`go movetime ${prof.movetime}`);
+          else post(`go depth ${prof.depth}`);
+
           setEngineThinks(true);
           if (thinkWatchdog.current) clearTimeout(thinkWatchdog.current);
-          thinkWatchdog.current = setTimeout(() => { if (engineThinks) { post('stop'); setEngineThinks(false); } }, 8000);
+          thinkWatchdog.current = setTimeout(() => {
+            if (engineThinks) { post('stop'); setEngineThinks(false); }
+          }, 8000);
         }
 
         function applyBestMove() {
@@ -617,13 +623,7 @@
           doMove(from, to, prom); pendingBest.current = null; const aivai = aiWhite && aiBlack; if (aivai && !game.isGameOver()) { setTimeout(enginePositionAndGo, 50); }
         }
 
-        function maybeEngineTurn() {
-          if (promo) return; // block engine while promotion picker is visible
-          if (!isAiTurn()) return;
-          if (!engineRef.current) { bootEngine(); return; }
-          if (!engineReady) return;
-          if (!engineThinks) enginePositionAndGo();
-        }
+        function maybeEngineTurn() { if (!isAiTurn()) return; if (!engineRef.current) { bootEngine(); return; } if (!engineReady) return; if (!engineThinks) enginePositionAndGo(); }
 
         useEffect(() => { if (!engineRef.current) { bootEngine(); return; } bootEngine(); }, [hardness]);
         useEffect(() => { maybeEngineTurn(); }, [aiWhite, aiBlack, game, roster]);
