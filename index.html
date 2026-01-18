@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <title>DragonBall Chess — Local 2P (All Fixes)</title>
@@ -9,12 +10,24 @@
   <script src="vendor/react.development.js"></script>
   <script src="vendor/react-dom.development.js"></script>
   <script src="vendor/babel.min.js"></script>
+  <script src="vendor/chess.min.js"></script>
   <script>
     // Tell the loader where the .wasm lives
     window.Module = { locateFile: p => 'vendor/lichess/' + p };
   </script>
   <style>
-    #bootlog { position: fixed; right: 8px; bottom: 8px; z-index: 9999; background: rgba(0, 0, 0, 0.7); color: #e2e8f0; font: 12px/1.4 ui-sans-serif, system-ui; padding: 8px 10px; border-radius: 8px; max-width: 60vw; }
+    #bootlog {
+      position: fixed;
+      right: 8px;
+      bottom: 8px;
+      z-index: 9999;
+      background: rgba(0, 0, 0, 0.7);
+      color: #e2e8f0;
+      font: 12px/1.4 ui-sans-serif, system-ui;
+      padding: 8px 10px;
+      border-radius: 8px;
+      max-width: 60vw;
+    }
   </style>
   <script>
     (function () {
@@ -28,48 +41,226 @@
   </script>
 
   <style>
-    html, body { height: 100%; }
-    body { margin: 0; background: #0f172a; color: #e2e8f0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
-    .square { aspect-ratio: 1 / 1; position: relative; }
-    .light { background: #f0d9b5; }
-    .dark { background: #b58863; }
-    .highlight { outline: 3px solid rgba(255, 230, 0, 0.8); outline-offset: -3px; }
-    .legal-dot::after { content: ""; width: 18px; height: 18px; border-radius: 9999px; background: rgba(0,0,0,0.18); position: absolute; inset: 0; margin: auto; }
-    .capture-ring::after { content: ""; position: absolute; inset: 6px; border: 3px solid rgba(220,38,38,0.85); border-radius: 8px; }
-    .mask { background: rgba(2,6,23,0.78); }
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+
+    .square {
+      aspect-ratio: 1 / 1;
+      position: relative;
+    }
+
+    .light {
+      background: #f0d9b5;
+    }
+
+    .dark {
+      background: #b58863;
+    }
+
+    .highlight {
+      outline: 3px solid rgba(255, 230, 0, 0.8);
+      outline-offset: -3px;
+    }
+
+    .legal-dot::after {
+      content: "";
+      width: 18px;
+      height: 18px;
+      border-radius: 9999px;
+      background: rgba(0, 0, 0, 0.18);
+      position: absolute;
+      inset: 0;
+      margin: auto;
+    }
+
+    .capture-ring::after {
+      content: "";
+      position: absolute;
+      inset: 6px;
+      border: 3px solid rgba(220, 38, 38, 0.85);
+      border-radius: 8px;
+    }
+
+    .mask {
+      background: rgba(2, 6, 23, 0.78);
+    }
 
     /* Piece rendering */
-    .piece-layer { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 6%; pointer-events: none; z-index: 10; }
-    .piece-img { width: 100%; height: 100%; object-fit: contain; user-select: none; display: block; }
-    .piece-badge { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: 12px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.9); background: rgba(0,0,0,0.6); border-radius: 9999px; padding: 2px 6px; max-width: 90%; margin: 0 auto; pointer-events: none; backdrop-filter: blur(3px); }
+    .piece-layer {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6%;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .piece-img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      user-select: none;
+      display: block;
+    }
+
+    .piece-badge {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 4px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+      background: rgba(0, 0, 0, 0.6);
+      border-radius: 9999px;
+      padding: 2px 6px;
+      max-width: 90%;
+      margin: 0 auto;
+      pointer-events: none;
+      backdrop-filter: blur(3px);
+    }
 
     /* Team visuals */
-    .team-w .piece-img { filter: drop-shadow(0 0 6px rgba(96,165,250,0.9)) drop-shadow(0 0 16px rgba(147,197,253,0.7)); }
-    .team-b .piece-img { filter: drop-shadow(0 0 6px rgba(248,113,113,0.9)) drop-shadow(0 0 16px rgba(254,202,202,0.7)); }
-    .team-ring { position: absolute; inset: 5px; border-radius: 10px; pointer-events: none; }
-    .team-w .team-ring { border: 3px solid rgba(59,130,246,0.85); box-shadow: 0 0 10px rgba(59,130,246,0.45) inset; }
-    .team-b .team-ring { border: 3px solid rgba(239,68,68,0.85); box-shadow: 0 0 10px rgba(239,68,68,0.45) inset; }
-    .team-w .piece-badge { background: rgba(59,130,246,0.22); border-radius: 9999px; display: inline-block; padding: 2px 6px; }
-    .team-b .piece-badge { background: rgba(239,68,68,0.22); border-radius: 9999px; display: inline-block; padding: 2px 6px; }
+    .team-w .piece-img {
+      filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.9)) drop-shadow(0 0 16px rgba(147, 197, 253, 0.7));
+    }
 
-    .pulse { animation: pulseScale 320ms ease-out; }
-    @keyframes pulseScale { 0% { transform: scale(0.82); opacity: 0.65; filter: saturate(0.6) brightness(1.1); } 100% { transform: scale(1); opacity: 1; } }
+    .team-b .piece-img {
+      filter: drop-shadow(0 0 6px rgba(248, 113, 113, 0.9)) drop-shadow(0 0 16px rgba(254, 202, 202, 0.7));
+    }
+
+    .team-ring {
+      position: absolute;
+      inset: 5px;
+      border-radius: 10px;
+      pointer-events: none;
+    }
+
+    .team-w .team-ring {
+      border: 3px solid rgba(59, 130, 246, 0.85);
+      box-shadow: 0 0 10px rgba(59, 130, 246, 0.45) inset;
+    }
+
+    .team-b .team-ring {
+      border: 3px solid rgba(239, 68, 68, 0.85);
+      box-shadow: 0 0 10px rgba(239, 68, 68, 0.45) inset;
+    }
+
+    .team-w .piece-badge {
+      background: rgba(59, 130, 246, 0.22);
+      border-radius: 9999px;
+      display: inline-block;
+      padding: 2px 6px;
+    }
+
+    .team-b .piece-badge {
+      background: rgba(239, 68, 68, 0.22);
+      border-radius: 9999px;
+      display: inline-block;
+      padding: 2px 6px;
+    }
+
+    .pulse {
+      animation: pulseScale 320ms ease-out;
+    }
+
+    @keyframes pulseScale {
+      0% {
+        transform: scale(0.82);
+        opacity: 0.65;
+        filter: saturate(0.6) brightness(1.1);
+      }
+
+      100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
 
     /* Layout */
-    .container { max-width: 1080px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; grid-template-columns: 1fr 320px; }
-    .card { background: rgba(30,41,59,0.4); border-radius: 16px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
-    .board { position: relative; display: grid; grid-template-columns: repeat(8, 1fr); border: 4px solid #334155; border-radius: 12px; overflow: hidden; }
-    .btn { background:#334155; color:#e2e8f0; border:0; border-radius:10px; padding:8px 12px; cursor:pointer; }
-    .btn:hover { background:#475569; }
-    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-    .status { font-size: 14px; opacity: 0.9; }
-    .stack { display:grid; gap:16px; }
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 16px;
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr 320px;
+    }
+
+    .card {
+      background: rgba(30, 41, 59, 0.4);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    .board {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      border: 4px solid #334155;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .btn {
+      background: #334155;
+      color: #e2e8f0;
+      border: 0;
+      border-radius: 10px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    .btn:hover {
+      background: #475569;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .status {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .stack {
+      display: grid;
+      gap: 16px;
+    }
 
     /* Overlay canvas fully covering board */
-    .overlay { position: absolute; inset: 0; pointer-events: none; }
-    .overlay > canvas { width: 100%; height: 100%; display: block; }
+    .overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .overlay>canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
   </style>
 </head>
+
 <body>
   <div id="root" class="min-h-full flex items-center justify-center p-4"></div>
 
@@ -82,31 +273,31 @@
       const { useState, useEffect, useRef } = React;
 
       // ---------- Helpers ----------
-      const FILES = ['a','b','c','d','e','f','g','h'];
-      const RANKS = [8,7,6,5,4,3,2,1];
+      const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      const RANKS = [8, 7, 6, 5, 4, 3, 2, 1];
       const isDark = (fileIdx, rankIdx) => (fileIdx + rankIdx) % 2 !== 0;
 
-      function sqToFR(sq){ const f = FILES.indexOf(sq[0]); const rNum = parseInt(sq[1],10); const rIdx = 8 - rNum; return { f, rNum, rIdx }; }
-      function frToSq(f, rNum){ if(f<0||f>7||rNum<1||rNum>8) return null; return FILES[f] + String(rNum); }
+      function sqToFR(sq) { const f = FILES.indexOf(sq[0]); const rNum = parseInt(sq[1], 10); const rIdx = 8 - rNum; return { f, rNum, rIdx }; }
+      function frToSq(f, rNum) { if (f < 0 || f > 7 || rNum < 1 || rNum > 8) return null; return FILES[f] + String(rNum); }
 
       // --- Promotion mapping (UI choices → DBZ character for your uniform set)
-      const PROMO_OPTIONS = ['q','r','b','n'];
+      const PROMO_OPTIONS = ['q', 'r', 'b', 'n'];
       const PROMO_CHAR = {
         q: 'grand_priest',
         r: 'goku',
-        b: 'vegeta',
+        b: 'majin_boo',
         n: 'gohan_kid',
       };
 
       // DBZ forms
       const FORMS = {
-        goku: ['base', 'kaioken', 'ssj','ssj2','ssj3', 'ssj4', 'ssg', 'ssb', 'ssb_kaioken', 'ui','mui'],
-        vegeta: ['base','great_ape', 'ssj','ssj2','ssj3', 'ssj4', 'ssg', 'ssb', 'ssb_evolved', 'ultra_ego'],
+        goku: ['base', 'kaioken', 'ssj', 'ssj2', 'ssj3', 'ssj4', 'ssg', 'ssb', 'ssb_kaioken', 'ui', 'mui'],
+        vegeta: ['base', 'great_ape', 'ssj', 'ssj2', 'ssj3', 'ssj4', 'ssg', 'ssb', 'ssb_evolved', 'ultra_ego'],
         zeno: ['zeno'], whis: ['angel'], grand_priest: ['grand_priest'],
-        piccolo: ['base','potential','orange'], krillin: ['base'], yamcha: ['base'], tien: ['base'], chiaotzu: ['base'], android_18: ['base'],
-        majin_boo: ['fat','evil','super','buutenks','buuccolo','buuhan','kid_buu'],
-        frieza: ['1','2','3','final','mecha','golden','black'], saibaman: ['base'],
-        gohan_kid: ['base','ssj','ssj2', 'ssj3', 'mystic', 'beast'], gotenks: ['base','ssj', 'ssj2', 'ssj3'],
+        piccolo: ['base', 'potential', 'orange'], krillin: ['base'], yamcha: ['base'], tien: ['base'], chiaotzu: ['base'], android_18: ['base'],
+        majin_boo: ['fat', 'evil', 'super', 'buutenks', 'buuccolo', 'buuhan', 'kid_buu'],
+        frieza: ['1', '2', '3', 'final', 'mecha', 'golden', 'black'], saibaman: ['base'],
+        gohan_kid: ['base', 'ssj', 'ssj2', 'ssj3', 'mystic', 'beast'], gotenks: ['base', 'ssj', 'ssj2', 'ssj3'],
       };
 
       function spriteUrl(char, formKey) { return `assets/pieces/${char}/${formKey}.png`; }
@@ -117,26 +308,23 @@
       //   b: new Set(['majin_boo','gotenks']), n: new Set(['gohan_kid','frieza']),
       //   p: new Set(['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']),
       // };
-      
+
       const TYPE_ALLOWED = {
-        k: new Set(['zeno']),
-        q: new Set(['grand_priest']),
-        r: new Set(['goku']),
-        b: new Set(['vegeta']),
-        n: new Set(['gohan_kid']),
-        p: new Set(['saibaman']),
+        k: new Set(['zeno']), q: new Set(['grand_priest']), r: new Set(['goku', 'vegeta']),
+        b: new Set(['majin_boo', 'gotenks']), n: new Set(['gohan_kid', 'frieza']),
+        p: new Set(['saibaman', 'chiaotzu', 'krillin', 'tien', 'whis', 'yamcha', 'piccolo', 'android_18']),
       };
 
       // const PAWN_FILES_DEFAULT = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18'];
 
-      const PAWN_FILES_DEFAULT = Array(8).fill('saibaman');
+      const PAWN_FILES_DEFAULT = ['saibaman', 'chiaotzu', 'krillin', 'tien', 'whis', 'yamcha', 'piccolo', 'android_18'];
 
       const POWER_OF = st => (st?.formIdx ?? 0);
       const LIVES_OF = st => (st?.life ?? 0);
 
       function clampForm(char, formIdx) {
         const forms = FORMS[char] ?? ['base'];
-        const idx = Math.min(Math.max(0, formIdx|0), forms.length - 1);
+        const idx = Math.min(Math.max(0, formIdx | 0), forms.length - 1);
         return { forms, formIdx: idx };
       }
 
@@ -150,11 +338,11 @@
             if (p.type === 'k') char = 'zeno';
             else if (p.type === 'q') char = 'grand_priest';
             else if (p.type === 'r') char = 'goku';
-            else if (p.type === 'b') char = 'vegeta';
+            else if (p.type === 'b') char = 'majin_boo';
             else if (p.type === 'n') char = 'gohan_kid';
             else if (p.type === 'p') { const fileIdx = FILES.indexOf(f); char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman'; }
             const { forms, formIdx } = clampForm(char, 0);
-            dbz = { id: `${p.color}_${char}_${Math.random().toString(36).slice(2,9)}`, color: p.color, char, life: 0, kills: 0, forms, formIdx, maxForm: 0 };
+            dbz = { id: `${p.color}_${char}_${Math.random().toString(36).slice(2, 9)}`, color: p.color, char, life: 0, kills: 0, forms, formIdx, maxForm: 0 };
             changed = true;
           } else {
             let char = dbz.char;
@@ -162,7 +350,7 @@
               if (p.type === 'k') char = 'zeno';
               else if (p.type === 'q') char = 'grand_priest';
               else if (p.type === 'r') char = 'goku';
-              else if (p.type === 'b') char = 'vegeta';
+              else if (p.type === 'b') char = 'majin_boo';
               else if (p.type === 'n') char = 'gohan_kid';
               else if (p.type === 'p') {
                 if (!TYPE_ALLOWED.p.has(char)) {
@@ -205,38 +393,20 @@
       function initialRoster() {
         const m = new Map();
         // White back rank
-        m.set('a1', mk('w','goku')); 
-        m.set('b1', mk('w','gohan_kid')); 
-        m.set('c1', mk('w','vegeta')); 
-        m.set('d1', mk('w','grand_priest')); 
-        m.set('e1', mk('w','zeno')); 
-        m.set('f1', mk('w','vegeta')); 
-        m.set('g1', mk('w','gohan_kid')); 
-        m.set('h1', mk('w','goku'));
-
-        // White pawns (all saibaman)
-        ['a2','b2','c2','d2','e2','f2','g2','h2']
-          .forEach(sq => m.set(sq, mk('w', 'saibaman')));
+        m.set('a1', mk('w', 'goku')); m.set('b1', mk('w', 'gohan_kid')); m.set('c1', mk('w', 'majin_boo')); m.set('d1', mk('w', 'grand_priest')); m.set('e1', mk('w', 'zeno')); m.set('f1', mk('w', 'gotenks')); m.set('g1', mk('w', 'frieza')); m.set('h1', mk('w', 'vegeta'));
+        // White pawns
+        ['a2', 'b2', 'c2', 'd2', 'e2', 'f2', 'g2', 'h2'].forEach((sq, i) => m.set(sq, mk('w', PAWN_FILES_DEFAULT[i])));
 
         // Black back rank
-        m.set('a8', mk('b','goku')); 
-        m.set('b8', mk('b','gohan_kid')); 
-        m.set('c8', mk('b','vegeta')); 
-        m.set('d8', mk('b','grand_priest')); 
-        m.set('e8', mk('b','zeno')); 
-        m.set('f8', mk('b','vegeta')); 
-        m.set('g8', mk('b','gohan_kid')); 
-        m.set('h8', mk('b','goku'));
-
-        // Black pawns (all saibaman)
-        ['a7','b7','c7','d7','e7','f7','g7','h7']
-          .forEach(sq => m.set(sq, mk('b', 'saibaman')));
+        m.set('a8', mk('b', 'goku')); m.set('b8', mk('b', 'gohan_kid')); m.set('c8', mk('b', 'majin_boo')); m.set('d8', mk('b', 'grand_priest')); m.set('e8', mk('b', 'zeno')); m.set('f8', mk('b', 'gotenks')); m.set('g8', mk('b', 'frieza')); m.set('h8', mk('b', 'vegeta'));
+        // Black pawns
+        ['a7', 'b7', 'c7', 'd7', 'e7', 'f7', 'g7', 'h7'].forEach((sq, i) => m.set(sq, mk('b', PAWN_FILES_DEFAULT[i])));
 
         return m;
 
         function mk(color, char) {
           const forms = FORMS[char] ?? ['base'];
-          return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms };
+          return { id: `${color}_${char}_${Math.random().toString(36).slice(2, 9)}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms };
         }
       }
 
@@ -279,10 +449,10 @@
         const [aiBlack, setAiBlack] = useState(false);
         const [hardness, setHardness] = useState('Normal');
         function hardnessProfile(h) {
-          if (h === 'Easy')   return { elo: 1000, movetime: 500, depth: 8,  hash: 8 };
-          if (h === 'Hard')   return { elo: 2000, movetime: 900, depth: 16, hash: 16 };
+          if (h === 'Easy') return { elo: 1000, movetime: 500, depth: 8, hash: 8 };
+          if (h === 'Hard') return { elo: 2000, movetime: 900, depth: 16, hash: 16 };
           if (h === 'Insane') return { elo: 2600, movetime: 1300, depth: 22, hash: 32 };
-          return              { elo: 1500, movetime: 700, depth: 12, hash: 12 };
+          return { elo: 1500, movetime: 700, depth: 12, hash: 12 };
         }
         const [engineReady, setEngineReady] = useState(false);
         const [engineThinks, setEngineThinks] = useState(false);
@@ -305,15 +475,15 @@
             else if (game.isStalemate()) setStatus('Stalemate');
             else if (game.isDraw()) setStatus('Draw');
             else setStatus('Game over');
-            try { post('stop'); } catch (_) {}
-            try { engineRef.current?.terminate?.(); } catch (_) {}
+            try { post('stop'); } catch (_) { }
+            try { engineRef.current?.terminate?.(); } catch (_) { }
             engineRef.current = null; pendingBest.current = null; setEngineThinks(false);
             if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
             setEngineReady(false);
             return;
           }
           const t = game.turn() === 'w' ? 'White' : 'Black';
-          const flags = [ game.isCheck() ? 'Check' : null ].filter(Boolean).join(' • ');
+          const flags = [game.isCheck() ? 'Check' : null].filter(Boolean).join(' • ');
           setStatus(`${t} to move${flags ? ' — ' + flags : ''}`);
         }
 
@@ -321,41 +491,41 @@
         function bumpMaxForm(state, newFormIdx) { const nf = Math.max(newFormIdx, state.maxForm ?? state.formIdx ?? 0); return { ...state, maxForm: nf }; }
 
         // ========= TURN-AGNOSTIC ATTACK DETECTOR (Fix #1) =========
-        function attackersFromColor(targetSq, attackerColor){
+        function attackersFromColor(targetSq, attackerColor) {
           const { f: tf, rNum: trNum } = sqToFR(targetSq);
           const attackers = new Set();
 
           // Knights (must be knights)
-          const kOff = [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]];
-          for(const [df,dr] of kOff){
-            const sq = frToSq(tf+df, trNum+dr); if(!sq) continue; const p = game.get(sq);
-            if(p && p.color===attackerColor && p.type==='n') attackers.add(sq);
+          const kOff = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]];
+          for (const [df, dr] of kOff) {
+            const sq = frToSq(tf + df, trNum + dr); if (!sq) continue; const p = game.get(sq);
+            if (p && p.color === attackerColor && p.type === 'n') attackers.add(sq);
           }
           // King
-          for(let df=-1; df<=1; df++) for(let dr=-1; dr<=1; dr++) if(df||dr){
-            const sq=frToSq(tf+df, trNum+dr); const p=sq?game.get(sq):null; if(p && p.color===attackerColor && p.type==='k') attackers.add(sq);
+          for (let df = -1; df <= 1; df++) for (let dr = -1; dr <= 1; dr++) if (df || dr) {
+            const sq = frToSq(tf + df, trNum + dr); const p = sq ? game.get(sq) : null; if (p && p.color === attackerColor && p.type === 'k') attackers.add(sq);
           }
           // Pawns
-          if(attackerColor==='w'){
-            const sq1 = frToSq(tf-1, trNum-1), sq2 = frToSq(tf+1, trNum-1);
-            const p1 = sq1?game.get(sq1):null, p2 = sq2?game.get(sq2):null;
-            if(p1 && p1.color==='w' && p1.type==='p') attackers.add(sq1);
-            if(p2 && p2.color==='w' && p2.type==='p') attackers.add(sq2);
+          if (attackerColor === 'w') {
+            const sq1 = frToSq(tf - 1, trNum - 1), sq2 = frToSq(tf + 1, trNum - 1);
+            const p1 = sq1 ? game.get(sq1) : null, p2 = sq2 ? game.get(sq2) : null;
+            if (p1 && p1.color === 'w' && p1.type === 'p') attackers.add(sq1);
+            if (p2 && p2.color === 'w' && p2.type === 'p') attackers.add(sq2);
           } else {
-            const sq1 = frToSq(tf-1, trNum+1), sq2 = frToSq(tf+1, trNum+1);
-            const p1 = sq1?game.get(sq1):null, p2 = sq2?game.get(sq2):null;
-            if(p1 && p1.color==='b' && p1.type==='p') attackers.add(sq1);
-            if(p2 && p2.color==='b' && p2.type==='p') attackers.add(sq2);
+            const sq1 = frToSq(tf - 1, trNum + 1), sq2 = frToSq(tf + 1, trNum + 1);
+            const p1 = sq1 ? game.get(sq1) : null, p2 = sq2 ? game.get(sq2) : null;
+            if (p1 && p1.color === 'b' && p1.type === 'p') attackers.add(sq1);
+            if (p2 && p2.color === 'b' && p2.type === 'p') attackers.add(sq2);
           }
           // Sliders
-          const rays = [ {dirs:[[1,0],[-1,0],[0,1],[0,-1]], types:new Set(['r','q'])}, {dirs:[[1,1],[1,-1],[-1,1],[-1,-1]], types:new Set(['b','q'])} ];
-          for(const grp of rays){
-            for(const [df,dr] of grp.dirs){
-              let ff=tf+df, rr=trNum+dr;
-              while(true){
-                const sq = frToSq(ff, rr); if(!sq) break; const p = game.get(sq);
-                if(!p){ ff+=df; rr+=dr; continue; }
-                if(p.color===attackerColor && grp.types.has(p.type)) attackers.add(sq);
+          const rays = [{ dirs: [[1, 0], [-1, 0], [0, 1], [0, -1]], types: new Set(['r', 'q']) }, { dirs: [[1, 1], [1, -1], [-1, 1], [-1, -1]], types: new Set(['b', 'q']) }];
+          for (const grp of rays) {
+            for (const [df, dr] of grp.dirs) {
+              let ff = tf + df, rr = trNum + dr;
+              while (true) {
+                const sq = frToSq(ff, rr); if (!sq) break; const p = game.get(sq);
+                if (!p) { ff += df; rr += dr; continue; }
+                if (p.color === attackerColor && grp.types.has(p.type)) attackers.add(sq);
                 break; // stop ray on first piece
               }
             }
@@ -369,7 +539,7 @@
           }
           return null;
         }
-        function attackersOfKing(color){ const ks = kingSquareOf(color); if(!ks) return new Set(); const opp = color==='w' ? 'b' : 'w'; return attackersFromColor(ks, opp); }
+        function attackersOfKing(color) { const ks = kingSquareOf(color); if (!ks) return new Set(); const opp = color === 'w' ? 'b' : 'w'; return attackersFromColor(ks, opp); }
 
         // --- Visual attack trail (Fix #2: from -> attempted.to) ---
         function drawAttackLine(move, attackerColor) {
@@ -382,7 +552,7 @@
           const border = 4; const innerW = Math.max(0, w - border * 2); const innerH = Math.max(0, h - border * 2);
           const sqW = innerW / 8; const sqH = innerH / 8;
           const fromFile = FILES.indexOf(move.from[0]); const fromRank = 8 - parseInt(move.from[1], 10);
-          const toFile   = FILES.indexOf(move.to[0]);   const toRank   = 8 - parseInt(move.to[1], 10);
+          const toFile = FILES.indexOf(move.to[0]); const toRank = 8 - parseInt(move.to[1], 10);
           const cx = f => border + f * sqW + sqW / 2; const cy = r => border + r * sqH + sqH / 2;
           ctx.strokeStyle = attackerColor === 'w' ? '#38bdf8' : '#ef4444';
           ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 12;
@@ -391,7 +561,7 @@
         }
 
         // --- Material / Captures ---
-        const PIECE_VALUE = { p:1, n:3, b:3, r:5, q:9 };
+        const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 };
         function materialScore(game) {
           let w = 0, b = 0; for (const row of game.board()) for (const cell of row) { if (!cell) continue; const v = PIECE_VALUE[cell.type] || 0; if (cell.color === 'w') w += v; else b += v; }
           return { w, b, diff: w - b };
@@ -425,7 +595,13 @@
             const filtered = filterMovesByDBZRules(baseMoves, sq);
             setSelected(sq); setLegal(new Set(filtered.map(m => m.to))); fenBefore.current = game.fen(); return;
           }
-          const pieceAt = game.get(sq);
+          if (fog) {
+            const r = parseInt(sq[1], 10);
+            const isW = game.turn() === 'w';
+            // Simple Fog check logic matching render
+            const hidden = (isW && r > 4) || (!isW && r < 5);
+            if (hidden) return; // Cannot select what you cannot see
+          }
           if (pieceAt && pieceAt.color === game.turn()) {
             const baseMoves = game.moves({ square: sq, verbose: true });
             const filtered = filterMovesByDBZRules(baseMoves, sq);
@@ -436,7 +612,7 @@
             // Promotion
             if (needsPromotion(selected, sq)) {
               // Pause engine while user chooses
-              try { post('stop'); } catch (_) {}
+              try { post('stop'); } catch (_) { }
               setEngineThinks(false);
               setPromo({ from: selected, to: sq, color: game.get(selected).color });
             } else {
@@ -487,7 +663,7 @@
             if (attempted.flags.includes('k') || attempted.flags.includes('q')) {
               const isWhite = attempted.color === 'w'; const isKingSide = attempted.flags.includes('k');
               const rookFrom = isKingSide ? (isWhite ? 'h1' : 'h8') : (isWhite ? 'a1' : 'a8');
-              const rookTo   = isKingSide ? (isWhite ? 'f1' : 'f8') : (isWhite ? 'd1' : 'd8');
+              const rookTo = isKingSide ? (isWhite ? 'f1' : 'f8') : (isWhite ? 'd1' : 'd8');
               setRoster(prev => { const m = new Map(prev); const king = m.get(from); if (king) { m.delete(from); m.set(to, king); } const rook = m.get(rookFrom); if (rook) { m.delete(rookFrom); m.set(rookTo, rook); } return m; });
               refreshStatus(); setTimeout(maybeEngineTurn, 0); return;
             }
@@ -586,7 +762,7 @@
           const targetSq = attempted.flags.includes('e')
             ? (attempted.color === 'w' ? to[0] + (parseInt(to[1]) - 1) : to[0] + (parseInt(to[1]) + 1))
             : to;
-          const defender  = roster.get(targetSq);
+          const defender = roster.get(targetSq);
 
           // While-in-check constraints (mirror your filter for engine too)
           const checkingSquares = attackersOfKing(game.get(from)?.color);
@@ -632,7 +808,7 @@
         function isAiTurn() { const t = game.turn(); return (t === 'w' && aiWhite) || (t === 'b' && aiBlack); }
         function bootEngine() {
           if (engineBooting.current) return; engineBooting.current = true;
-          try { engineRef.current?.terminate?.(); } catch (_) {}
+          try { engineRef.current?.terminate?.(); } catch (_) { }
           engineRef.current = null; setEngineReady(false); setEngineThinks(false); pendingBest.current = null;
           if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
           engineBuf.current = [];
@@ -650,7 +826,7 @@
               pendingBest.current = uci; applyBestMove();
             }
           };
-          eng.onerror = (err) => { logEngine('ERR', `Engine worker error: ${err?.message || err}`); engineBooting.current = false; try { engineRef.current?.terminate?.(); } catch (_) {} engineRef.current = null; setEngineReady(false); setEngineThinks(false); setTimeout(() => bootEngine(), 50); };
+          eng.onerror = (err) => { logEngine('ERR', `Engine worker error: ${err?.message || err}`); engineBooting.current = false; try { engineRef.current?.terminate?.(); } catch (_) { } engineRef.current = null; setEngineReady(false); setEngineThinks(false); setTimeout(() => bootEngine(), 50); };
           post('uci');
         }
         function applyStrengthFor(color) { const prof = hardnessProfile(hardness); const elo = prof.elo; if (!engineRef.current) return; post(`setoption name UCI_LimitStrength value true`); post(`setoption name UCI_Elo value ${elo}`); const skill = Math.min(20, Math.round((elo - 800) / 100)); post(`setoption name Skill Level value ${Math.max(0, skill)}`); }
@@ -679,79 +855,81 @@
           }, 8000);
         }
 
-      function applyBestMove() {
-        const uci = pendingBest.current; if (!uci || game.isGameOver()) return;
-        const from = uci.slice(0, 2), to = uci.slice(2, 4), prom = uci[4];
+        function applyBestMove() {
+          const uci = pendingBest.current; if (!uci || game.isGameOver()) return;
+          const from = uci.slice(0, 2), to = uci.slice(2, 4), prom = uci[4];
 
-        // Check *DBZ* legality & outcome before applying:
-        const out = dbzOutcomeForAttempt(game, roster, from, to, prom);
-        if (out.kind === 'illegal') { 
-          // Reject this move; ask engine again
+          // Check *DBZ* legality & outcome before applying:
+          const out = dbzOutcomeForAttempt(game, roster, from, to, prom);
+          if (out.kind === 'illegal') {
+            // Reject this move; prevent infinite loop
+            console.warn('Engine suggested illegal DBZ move:', uci);
+            pendingBest.current = null;
+            setEngineThinks(false);
+            // Do NOT immediately retry to avoid infinite loop of same bad move
+            // Just stop and let user play or let engine timeout
+            return;
+          }
+
+          // Apply move with your existing doMove logic; it already handles C/D/E visuals.
+          doMove(from, to, prom);
           pendingBest.current = null;
-          setEngineThinks(false);
-          setTimeout(enginePositionAndGo, 0);
-          return;
+
+          const aivai = aiWhite && aiBlack;
+          if (aivai && !game.isGameOver()) setTimeout(enginePositionAndGo, 50);
         }
-
-        // Apply move with your existing doMove logic; it already handles C/D/E visuals.
-        doMove(from, to, prom);
-        pendingBest.current = null;
-
-        const aivai = aiWhite && aiBlack;
-        if (aivai && !game.isGameOver()) setTimeout(enginePositionAndGo, 50);
-      }
 
         function maybeEngineTurn() { if (!isAiTurn()) return; if (!engineRef.current) { bootEngine(); return; } if (!engineReady) return; if (!engineThinks) enginePositionAndGo(); }
 
         useEffect(() => { if (!engineRef.current) { bootEngine(); return; } bootEngine(); }, [hardness]);
         useEffect(() => { maybeEngineTurn(); }, [aiWhite, aiBlack, game, roster]);
-        useEffect(() => () => { try { engineRef.current?.terminate?.(); } catch (_) {} }, []);
+        useEffect(() => () => { try { engineRef.current?.terminate?.(); } catch (_) { } }, []);
 
         // ---- UI ----
         return (
           <div className="container">
             <div className="card">
-              <div style={{fontSize:'20px', fontWeight:600, marginBottom:'12px'}}>DragonBall Chess</div>
+              <div style={{ fontSize: '20px', fontWeight: 600, marginBottom: '12px' }}>DragonBall Chess</div>
               <div className="relative">
                 <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} trailRef={trailRef} />
                 {engineThinks && (<div style={{ position: 'absolute', right: '8px', top: '8px', background: 'rgba(2,6,23,0.7)', padding: '6px 10px', borderRadius: '10px', fontSize: '12px' }}>Stockfish thinking…</div>)}
               </div>
               {promo && (
                 <div style={{
-                  position:'fixed', inset:0, background:'rgba(0,0,0,0.55)',
-                  display:'flex', alignItems:'center', justifyContent:'center', zIndex: 9999
+                  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
                 }}>
-                  <div style={{ background:'#111827', border:'1px solid #374151', borderRadius:12, padding:16, boxShadow:'0 10px 30px rgba(0,0,0,0.5)' }}>
-                    <div style={{ fontWeight:700, marginBottom:10, textAlign:'center' }}>Choose promotion</div>
-                    <div style={{ display:'flex', gap:12 }}>
+                  <div style={{ background: '#111827', border: '1px solid #374151', borderRadius: 12, padding: 16, boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+                    <div style={{ fontWeight: 700, marginBottom: 10, textAlign: 'center' }}>Choose promotion</div>
+                    <div style={{ display: 'flex', gap: 12 }}>
                       {PROMO_OPTIONS.map(code => {
                         const char = PROMO_CHAR[code];
                         const form = (FORMS[char] || ['base'])[0];
                         return (
                           <button key={code}
                             onClick={() => { setPromo(null); doMove(promo.from, promo.to, code); }}
-                            style={{ background:'#1f2937', border:'1px solid #4b5563', padding:8, borderRadius:10, cursor:'pointer' }}>
-                            <div style={{ width:72, height:72, display:'grid', placeItems:'center' }}>
-                              <img draggable="false" style={{ maxWidth:'100%', maxHeight:'100%' }}
-                                  src={spriteUrl(char, form)}
-                                  onError={e => e.currentTarget.style.display='none'}
-                                  alt={char}/>
+                            style={{ background: '#1f2937', border: '1px solid #4b5563', padding: 8, borderRadius: 10, cursor: 'pointer' }}>
+                            <div style={{ width: 72, height: 72, display: 'grid', placeItems: 'center' }}>
+                              <img draggable="false" style={{ maxWidth: '100%', maxHeight: '100%' }}
+                                src={spriteUrl(char, form)}
+                                onError={e => e.currentTarget.style.display = 'none'}
+                                alt={char} />
                             </div>
-                            <div style={{ fontSize:12, marginTop:6, textTransform:'uppercase', letterSpacing:0.5, textAlign:'center', opacity:.9 }}>
-                              {({q:'Queen', r:'Rook', b:'Bishop', n:'Knight'})[code]}
+                            <div style={{ fontSize: 12, marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'center', opacity: .9 }}>
+                              {({ q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' })[code]}
                             </div>
                           </button>
                         );
                       })}
                     </div>
-                    <div style={{ textAlign:'center', marginTop:10 }}>
+                    <div style={{ textAlign: 'center', marginTop: 10 }}>
                       <button className="btn" onClick={() => setPromo(null)}>Cancel</button>
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="row" style={{marginTop:'16px', justifyContent:'space-between'}}>
+              <div className="row" style={{ marginTop: '16px', justifyContent: 'space-between' }}>
                 <div className="status">{status}</div>
                 <div className="row">
                   <button className="btn" onClick={() => { const g = new Chess(); setGame(g); setRoster(initialRoster()); setSelected(null); setLegal(new Set()); setCapturedByWhite([]); setCapturedByBlack([]); historyRef.current = []; refreshStatus(); maybeEngineTurn(); }}>Restart</button>
@@ -763,24 +941,24 @@
 
             <aside className="stack">
               <Panel title="Engine Log">
-                <div style={{fontSize:12, maxHeight:180, overflow:'auto', background:'#0b1220', padding:8, borderRadius:8}}>
-                  {(engineBuf.current || []).map((l,i) => <div key={i} style={{whiteSpace:'pre-wrap'}}>{l}</div>)}
+                <div style={{ fontSize: 12, maxHeight: 180, overflow: 'auto', background: '#0b1220', padding: 8, borderRadius: 8 }}>
+                  {(engineBuf.current || []).map((l, i) => <div key={i} style={{ whiteSpace: 'pre-wrap' }}>{l}</div>)}
                 </div>
-                <div style={{fontSize:12, opacity:.9, marginTop:6}}>
-                  Ready: <b>{String(engineReady)}</b> · Thinking: <b>{String(engineThinks)}</b><br/>
-                  FEN: <code style={{fontSize:11}}>{game.fen()}</code>
+                <div style={{ fontSize: 12, opacity: .9, marginTop: 6 }}>
+                  Ready: <b>{String(engineReady)}</b> · Thinking: <b>{String(engineThinks)}</b><br />
+                  FEN: <code style={{ fontSize: 11 }}>{game.fen()}</code>
                 </div>
               </Panel>
 
               <Panel title="Score & Captures">
                 {(() => {
                   const ms = materialScore(game);
-                  const pieceGlyph = t => ({p:'♙',n:'♘',b:'♗',r:'♖',q:'♕'}[t] || t);
+                  const pieceGlyph = t => ({ p: '♙', n: '♘', b: '♗', r: '♖', q: '♕' }[t] || t);
                   return (
                     <div style={{ fontSize: 13, lineHeight: 1.6 }}>
                       <div><b>Material</b> — White: {ms.w} • Black: {ms.b} • Diff: {ms.diff > 0 ? `+${ms.diff}` : ms.diff}</div>
-                      <div className="row"><b>White gained:</b>&nbsp;{capturedByWhite.length ? capturedByWhite.map((t,i)=><span key={i} style={{marginRight:6}}>{pieceGlyph(t)}</span>) : <i>—</i>}</div>
-                      <div className="row"><b>Black gained:</b>&nbsp;{capturedByBlack.length ? capturedByBlack.map((t,i)=><span key={i} style={{marginRight:6}}>{pieceGlyph(t)}</span>) : <i>—</i>}</div>
+                      <div className="row"><b>White gained:</b>&nbsp;{capturedByWhite.length ? capturedByWhite.map((t, i) => <span key={i} style={{ marginRight: 6 }}>{pieceGlyph(t)}</span>) : <i>—</i>}</div>
+                      <div className="row"><b>Black gained:</b>&nbsp;{capturedByBlack.length ? capturedByBlack.map((t, i) => <span key={i} style={{ marginRight: 6 }}>{pieceGlyph(t)}</span>) : <i>—</i>}</div>
                     </div>
                   );
                 })()}
@@ -835,17 +1013,17 @@
                 <div style={{ fontSize: '12px', opacity: 0.9 }}>
                   Place sprites as PNGs:
                   <pre style={{ marginTop: '8px', background: '#0b1220', padding: '8px', borderRadius: '8px' }}>assets/pieces/goku/base.png, kaioken.png, ssj.png, ...
-assets/pieces/vegeta/base.png, ssj.png, ssj2.png, ssb.png, ultra_ego.png
-assets/pieces/zeno/zeno.png
-assets/pieces/grand_priest/grand_priest.png
-... (others optional)</pre>
+                    assets/pieces/vegeta/base.png, ssj.png, ssj2.png, ssb.png, ultra_ego.png
+                    assets/pieces/zeno/zeno.png
+                    assets/pieces/grand_priest/grand_priest.png
+                    ... (others optional)</pre>
                   Missing sprites simply hide the image.
                 </div>
               </Panel>
             </aside>
 
             {toast && (
-              <div style={{position:'fixed', bottom:'16px', left:'50%', transform:'translateX(-50%)', background:'rgba(0,0,0,0.7)', padding:'8px 12px', borderRadius:'12px', fontSize:'14px', boxShadow:'0 8px 20px rgba(0,0,0,0.35)'}}>
+              <div style={{ position: 'fixed', bottom: '16px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.7)', padding: '8px 12px', borderRadius: '12px', fontSize: '14px', boxShadow: '0 8px 20px rgba(0,0,0,0.35)' }}>
                 {toast}
               </div>
             )}
@@ -856,7 +1034,7 @@ assets/pieces/grand_priest/grand_priest.png
       function Panel({ title, children }) {
         return (
           <div className="card">
-            <div style={{fontWeight:600, marginBottom:'8px'}}>{title}</div>
+            <div style={{ fontWeight: 600, marginBottom: '8px' }}>{title}</div>
             {children}
           </div>
         );
@@ -918,40 +1096,23 @@ assets/pieces/grand_priest/grand_priest.png
         } catch (err) { __log('Mount failed:', err.message); throw err; }
       };
 
-      setTimeout(() => { try { window.__mountApp(); } catch(_) {} }, 0);
+      setTimeout(() => { try { window.__mountApp(); } catch (_) { } }, 0);
     }
   </script>
 
   <!-- ES Module loader for chess.js (single source of truth) -->
-  <script type="module">
-    async function loadChessAndBoot() {
-      const tryImport = async (url) => { __log('Importing', url); const m = await import(url); return m.Chess || m.default || m; };
-      let ChessCtor = null;
-      try { ChessCtor = await tryImport('https://cdn.jsdelivr.net/npm/chess.js@1.4.0/dist/esm/chess.js'); }
-      catch (e1) {
-        try { ChessCtor = await tryImport('https://unpkg.com/chess.js@1.4.0/dist/esm/chess.js'); }
-        catch (e2) {
-          __log('ESM failed, falling back to UMD…');
-          await new Promise((resolve, reject) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js'; s.onload = resolve; s.onerror = reject; document.head.appendChild(s); });
-          ChessCtor = window.Chess;
-          if (ChessCtor) {
-            __log('UMD loaded');
-            const _proto = ChessCtor.prototype;
-            _proto.isGameOver = _proto.game_over; _proto.isCheck = _proto.in_check; _proto.isCheckmate = _proto.in_checkmate; _proto.isStalemate = _proto.in_stalemate; _proto.isDraw = _proto.in_draw;
-          }
+  <script>
+      // Simple boot
+      (function check() {
+        if (window.Chess && typeof window.bootDBZ === 'function') {
+          window.bootDBZ();
+        } else {
+          setTimeout(check, 50);
         }
-      }
-      if (!ChessCtor) { __log('Chess undefined after loads'); alert('Failed to load chess.js'); return; }
-      window.Chess = ChessCtor; __log('Chess ready');
-      if (typeof window.bootDBZ === 'function') { __log('Calling bootDBZ'); window.bootDBZ(); }
-      else {
-        __log('bootDBZ not defined yet; retrying shortly…');
-        let tries = 0; const t = setInterval(() => { tries++; if (typeof window.bootDBZ === 'function') { clearInterval(t); __log('bootDBZ found (retry)', tries); window.bootDBZ(); } else if (tries > 20) { clearInterval(t); alert('App boot function missing'); __log('bootDBZ missing after retries'); } }, 100);
-      }
-    }
-    loadChessAndBoot();
+      })();
   </script>
 
   <script> console.log('Booting DBZ Chess…'); __log('Booting…'); </script>
 </body>
+
 </html>
