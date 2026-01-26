@@ -71,6 +71,10 @@
       outline-offset: -3px;
     }
 
+    .last-move {
+      background: rgba(255, 255, 0, 0.22) !important;
+    }
+
     .legal-dot::after {
       content: "";
       width: 18px;
@@ -186,6 +190,22 @@
 
       100% {
         transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    .pulse-slow {
+      animation: pulseSlow 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulseSlow {
+
+      0%,
+      100% {
+        opacity: 0.7;
+      }
+
+      50% {
         opacity: 1;
       }
     }
@@ -397,12 +417,83 @@
       }
 
       // ---------- Main App ----------
+      // ---------- Main App Components (Extracted for performance) ----------
+      const Panel = React.memo(({ title, children }) => {
+        return (
+          <div className="card">
+            <div style={{ fontWeight: 600, marginBottom: '8px' }}>{title}</div>
+            {children}
+          </div>
+        );
+      });
+
+      const Board = React.memo(({ game, roster, selected, legal, fog, onSquareClick, trailRef, lastMove }) => {
+        return (
+          <div className="board" style={{ position: 'relative' }}>
+            {RANKS.map((r, rIdx) =>
+              FILES.map((f, fIdx) => {
+                const sq = `${f}${r}`;
+                const dark = isDark(fIdx, rIdx);
+                const p = game.get(sq);
+                const dbz = roster.get(sq);
+                const isSel = selected === sq;
+                const isLegal = legal.has(sq);
+                const isLast = lastMove && (lastMove.from === sq || lastMove.to === sq);
+
+                // Fog check: hidden if fog is on AND (it's not your side AND (no piece OR not your piece))
+                const turn = game.turn();
+                const hide = fog && (
+                  (turn === 'w' && r > 4 && (!p || p.color !== 'w')) ||
+                  (turn === 'b' && r < 5 && (!p || p.color !== 'b'))
+                );
+                const teamClass = p ? (p.color === 'w' ? 'team-w' : 'team-b') : '';
+
+                return (
+                  <div
+                    key={sq}
+                    onClick={() => onSquareClick(sq, hide)}
+                    className={`relative square flex items-center justify-center select-none cursor-pointer ${dark ? 'dark' : 'light'} ${isSel ? 'highlight' : ''} ${isLast ? 'last-move' : ''} ${teamClass}`}
+                    style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    {hide && <div className="absolute inset-0 mask" style={{ position: 'absolute', inset: 0 }}></div>}
+                    {isLegal && !p && !hide && <div className="absolute inset-0 legal-dot" style={{ position: 'absolute', inset: 0 }} />}
+                    {isLegal && p && !hide && <div className="absolute inset-0 capture-ring" style={{ position: 'absolute', inset: 0 }} />}
+
+                    {p && dbz && !hide && (
+                      <>
+                        <div className="team-ring" />
+                        <div className="piece-layer">
+                          <img className="piece-img" draggable="false"
+                            src={spriteUrl(dbz.char, dbz.forms[dbz.formIdx])}
+                            onError={(e) => {
+                              const fallback = spriteUrl(dbz.char, 'base');
+                              if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
+                              else e.currentTarget.style.display = 'none';
+                            }}
+                            alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`}
+                          />
+                        </div>
+                        <div className="piece-badge">{dbz.forms[dbz.formIdx]} · ❤{dbz.life}</div>
+                      </>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            <div className="overlay" aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 10 }}>
+              <canvas ref={trailRef} />
+            </div>
+          </div>
+        );
+      });
+
       function App() {
         const [game, setGame] = useState(() => new Chess());
         const [roster, setRoster] = useState(() => initialRoster());
         const [selected, setSelected] = useState(null);
         const [legal, setLegal] = useState(new Set());
         const [status, setStatus] = useState('');
+        const [lastMove, setLastMove] = useState(null);
         const fenBefore = useRef('');
         const [toast, setToast] = useState(null);
         const [fog, setFog] = useState(false);
@@ -567,37 +658,40 @@
           return true;
         }
         function toggleTurnFen(fen, attackerColor) {
-          const parts = fen.split(' '); if (parts.length < 6) return fen; const wasBlack = attackerColor === 'b';
-          parts[1] = parts[1] === 'w' ? 'b' : 'w'; if (wasBlack) parts[5] = String(parseInt(parts[5], 10) + 1);
+          const parts = fen.split(' '); if (parts.length < 6) return fen;
+          const wasBlack = attackerColor === 'b';
+          parts[1] = parts[1] === 'w' ? 'b' : 'w';
+          if (wasBlack) parts[5] = String(parseInt(parts[5], 10) + 1);
+          // Increment halfmove clock as a hit is a non-restorative action
+          parts[4] = String(parseInt(parts[4], 10) + 1);
+          // Clear en passant square as the turn has passed
+          parts[3] = '-';
           return parts.join(' ');
         }
 
         // --- Input handling ---
-        function onSquareClick(sq) {
+        const onSquareClick = React.useCallback((sq, isHiddenInFog) => {
+          // If we are currently showing a promotion choice, block board clicks
+          if (promo) return;
+
           if (selected === null) {
+            if (isHiddenInFog) return;
             const p = game.get(sq); if (!p) return; if (p.color !== game.turn()) return;
             const baseMoves = game.moves({ square: sq, verbose: true });
             const filtered = filterMovesByDBZRules(baseMoves, sq);
             setSelected(sq); setLegal(new Set(filtered.map(m => m.to))); fenBefore.current = game.fen(); return;
           }
-          if (fog) {
-            const r = parseInt(sq[1], 10);
-            const isW = game.turn() === 'w';
-            // Simple Fog check logic matching render
-            const hidden = (isW && r > 4) || (!isW && r < 5);
-            if (hidden) return; // Cannot select what you cannot see
-          }
+
+          // If clicking own piece, switch selection
           const pieceAt = game.get(sq);
-          if (pieceAt && pieceAt.color === game.turn()) {
+          if (pieceAt && pieceAt.color === game.turn() && !isHiddenInFog) {
             const baseMoves = game.moves({ square: sq, verbose: true });
             const filtered = filterMovesByDBZRules(baseMoves, sq);
             setSelected(sq); setLegal(new Set(filtered.map(m => m.to))); fenBefore.current = game.fen(); return;
           }
 
           if (legal.has(sq)) {
-            // Promotion
             if (needsPromotion(selected, sq)) {
-              // Pause engine while user chooses
               try { post('stop'); } catch (_) { }
               setEngineThinks(false);
               setPromo({ from: selected, to: sq, color: game.get(selected).color });
@@ -607,20 +701,27 @@
           }
 
           setSelected(null); setLegal(new Set());
-        }
+        }, [game, selected, legal, promo, fog]);
 
         // FILTER per requested rules (uses turn-agnostic attackers)
         function filterMovesByDBZRules(baseMoves, fromSq) {
           const res = [];
           const color = game.get(fromSq)?.color; const checkingSquares = attackersOfKing(color);
           for (const m of baseMoves) {
+            // Check if capture targets a checker
+            let targetSq = m.to;
+            if (m.flags.includes('e')) {
+              // En passant: checker is on a different square
+              targetSq = m.color === 'w' ? m.to[0] + (parseInt(m.to[1]) - 1) : m.to[0] + (parseInt(m.to[1]) + 1);
+            }
+
             // A) King cannot capture a checker with lives > 0
-            if (game.get(fromSq)?.type === 'k' && checkingSquares.has(m.to)) {
-              const checkerState = roster.get(m.to); if (LIVES_OF(checkerState) > 0) continue;
+            if (game.get(fromSq)?.type === 'k' && checkingSquares.has(targetSq)) {
+              const checkerState = roster.get(targetSq); if (LIVES_OF(checkerState) > 0) continue;
             }
             // B) Only a friendly piece with more lives than the checker may capture that checker
-            if (checkingSquares.size > 0 && m.flags.includes('c') && checkingSquares.has(m.to)) {
-              const attackerState = roster.get(fromSq); const checkerState = roster.get(m.to);
+            if (checkingSquares.size > 0 && (m.flags.includes('c') || m.flags.includes('e')) && checkingSquares.has(targetSq)) {
+              const attackerState = roster.get(fromSq); const checkerState = roster.get(targetSq);
               if (!(LIVES_OF(attackerState) > LIVES_OF(checkerState))) continue;
             }
             res.push(m);
@@ -639,6 +740,7 @@
           pushHistory(beforeFEN);
           const attempted = game.move({ from, to, promotion: promotion || 'q' });
           if (!attempted) { setGame(new Chess(game.fen())); historyRef.current.pop(); return; }
+          setLastMove({ from, to });
 
           const wasCapture = !!attempted.captured || attempted.flags.includes('e');
           const isPromotion = !!attempted.promotion;
@@ -712,7 +814,7 @@
               if (attempted.flags.includes('e') || isEnPassant) m.delete(defenderSquare);
               return m;
             });
-            recordCaptureGlyph(attempted);
+            recordCaptureGlyph(attempted, defenderState);
             flashNotice(attempted.flags.includes('e') || isEnPassant ? 'En Passant Overpower!' : 'Overpower! (+1)');
             refreshStatus(); maybeEngineTurn(); return;
           }
@@ -765,7 +867,7 @@
             return m;
           });
 
-          recordCaptureGlyph(attempted); flashNotice('Power up! (+1)'); refreshStatus(); maybeEngineTurn(); return;
+          recordCaptureGlyph(attempted, defenderState); flashNotice('Power up! (+1)'); refreshStatus(); maybeEngineTurn(); return;
         }
 
         function dbzOutcomeForAttempt(game, roster, from, to, promotion) {
@@ -814,7 +916,13 @@
           return { kind: 'capture_normal', isPromotion: !!attempted.promotion, prom: attempted.promotion };
         }
 
-        function recordCaptureGlyph(attempted) { const capType = attempted.captured || (attempted.flags.includes('e') ? 'p' : null); if (!capType) return; if (attempted.color === 'w') setCapturedByWhite(prev => [...prev, capType]); else setCapturedByBlack(prev => [...prev, capType]); }
+        function recordCaptureGlyph(attempted, defenderState) {
+          const capType = attempted.captured || (attempted.flags.includes('e') ? 'p' : null);
+          if (!capType || !defenderState) return;
+          const entry = { type: capType, char: defenderState.char, form: defenderState.forms[defenderState.formIdx] };
+          if (attempted.color === 'w') setCapturedByWhite(prev => [...prev, entry]);
+          else setCapturedByBlack(prev => [...prev, entry]);
+        }
         function syncRosterOnMove(from, to) { setRoster(prev => { const m = new Map(prev); const st = m.get(from); if (!st) return prev; m.delete(from); m.set(to, st); return m; }); }
 
         // ---------- ENGINE WIRING ----------
@@ -905,8 +1013,12 @@
             <div className="card">
               <div style={{ fontSize: '20px', fontWeight: 600, marginBottom: '12px' }}>DragonBall Chess</div>
               <div className="relative">
-                <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} trailRef={trailRef} />
-                {engineThinks && (<div style={{ position: 'absolute', right: '8px', top: '8px', background: 'rgba(2,6,23,0.7)', padding: '6px 10px', borderRadius: '10px', fontSize: '12px' }}>Stockfish thinking…</div>)}
+                <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} trailRef={trailRef} lastMove={lastMove} />
+                {engineThinks && (
+                  <div style={{ position: 'absolute', right: '8px', top: '8px', background: 'rgba(2,6,23,0.7)', padding: '6px 12px', borderRadius: '10px', fontSize: '12px', border: '1px solid #3b82f6', color: '#60a5fa' }}>
+                    <span className="pulse-slow">{game.turn() === 'w' ? 'Goku' : 'Frieza'} (AI) thinking...</span>
+                  </div>
+                )}
               </div>
               {promo && (
                 <div style={{
@@ -946,9 +1058,17 @@
               <div className="row" style={{ marginTop: '16px', justifyContent: 'space-between' }}>
                 <div className="status">{status}</div>
                 <div className="row">
-                  <button className="btn" onClick={() => { const g = new Chess(); setGame(g); setRoster(initialRoster()); setSelected(null); setLegal(new Set()); setCapturedByWhite([]); setCapturedByBlack([]); historyRef.current = []; refreshStatus(); maybeEngineTurn(); }}>Restart</button>
+                  <button className="btn" onClick={() => {
+                    try { post('stop'); } catch (_) { }
+                    setEngineThinks(false);
+                    const g = new Chess(); setGame(g); setRoster(initialRoster()); setSelected(null); setLegal(new Set()); setCapturedByWhite([]); setCapturedByBlack([]); setLastMove(null); historyRef.current = []; refreshStatus(); maybeEngineTurn();
+                  }}>Restart</button>
                   <button className="btn" onClick={() => setFog(f => !f)}>{fog ? 'Fog: ON' : 'Fog: OFF'}</button>
-                  <button className="btn" onClick={() => { if (!popHistory()) return; refreshStatus(); maybeEngineTurn(); }}>Undo</button>
+                  <button className="btn" onClick={() => {
+                    try { post('stop'); } catch (_) { }
+                    setEngineThinks(false);
+                    if (!popHistory()) return; setLastMove(null); refreshStatus(); maybeEngineTurn();
+                  }}>Undo</button>
                 </div>
               </div>
             </div>
@@ -967,12 +1087,18 @@
               <Panel title="Score & Captures">
                 {(() => {
                   const ms = materialScore(game);
-                  const pieceGlyph = t => ({ p: '♙', n: '♘', b: '♗', r: '♖', q: '♕' }[t] || t);
+                  const renderCap = (c, i) => (
+                    <div key={i} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(0,0,0,0.3)', display: 'grid', placeItems: 'center', position: 'relative' }} title={c.char}>
+                      <img src={spriteUrl(c.char, c.form)} style={{ maxWidth: '85%', maxHeight: '85%', objectFit: 'contain' }} alt={c.char} />
+                    </div>
+                  );
                   return (
                     <div style={{ fontSize: 13, lineHeight: 1.6 }}>
                       <div><b>Material</b> — White: {ms.w} • Black: {ms.b} • Diff: {ms.diff > 0 ? `+${ms.diff}` : ms.diff}</div>
-                      <div className="row"><b>White gained:</b>&nbsp;{capturedByWhite.length ? capturedByWhite.map((t, i) => <span key={i} style={{ marginRight: 6 }}>{pieceGlyph(t)}</span>) : <i>—</i>}</div>
-                      <div className="row"><b>Black gained:</b>&nbsp;{capturedByBlack.length ? capturedByBlack.map((t, i) => <span key={i} style={{ marginRight: 6 }}>{pieceGlyph(t)}</span>) : <i>—</i>}</div>
+                      <div className="stack" style={{ gap: 8, marginTop: 10 }}>
+                        <div className="row" style={{ gap: 4 }}><b>White gained:</b>&nbsp;{capturedByWhite.length ? capturedByWhite.map(renderCap) : <i>—</i>}</div>
+                        <div className="row" style={{ gap: 4 }}><b>Black gained:</b>&nbsp;{capturedByBlack.length ? capturedByBlack.map(renderCap) : <i>—</i>}</div>
+                      </div>
                     </div>
                   );
                 })()}
