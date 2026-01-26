@@ -302,20 +302,11 @@
 
       function spriteUrl(char, formKey) { return `assets/pieces/${char}/${formKey}.png`; }
 
-      // // Mapping guards
-      // const TYPE_ALLOWED = {
-      //   k: new Set(['zeno']), q: new Set(['grand_priest']), r: new Set(['goku','vegeta']),
-      //   b: new Set(['majin_boo','gotenks']), n: new Set(['gohan_kid','frieza']),
-      //   p: new Set(['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']),
-      // };
-
       const TYPE_ALLOWED = {
         k: new Set(['zeno']), q: new Set(['grand_priest']), r: new Set(['goku', 'vegeta']),
         b: new Set(['majin_boo', 'gotenks']), n: new Set(['gohan_kid', 'frieza']),
         p: new Set(['saibaman', 'chiaotzu', 'krillin', 'tien', 'whis', 'yamcha', 'piccolo', 'android_18']),
       };
-
-      // const PAWN_FILES_DEFAULT = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18'];
 
       const PAWN_FILES_DEFAULT = ['saibaman', 'chiaotzu', 'krillin', 'tien', 'whis', 'yamcha', 'piccolo', 'android_18'];
 
@@ -376,19 +367,6 @@
         return [out, changed];
       }
 
-      // function initialRoster() {
-      //   const m = new Map();
-      //   // White back rank
-      //   m.set('a1', mk('w','goku')); m.set('b1', mk('w','gohan_kid')); m.set('c1', mk('w','majin_boo')); m.set('d1', mk('w','grand_priest')); m.set('e1', mk('w','zeno')); m.set('f1', mk('w','gotenks')); m.set('g1', mk('w','frieza')); m.set('h1', mk('w','vegeta'));
-      //   // White pawns
-      //   ['a2','b2','c2','d2','e2','f2','g2','h2'].forEach((sq, i) => { const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']; m.set(sq, mk('w', order[i])); });
-      //   // Black back rank
-      //   m.set('a8', mk('b','goku')); m.set('b8', mk('b','gohan_kid')); m.set('c8', mk('b','majin_boo')); m.set('d8', mk('b','grand_priest')); m.set('e8', mk('b','zeno')); m.set('f8', mk('b','gotenks')); m.set('g8', mk('b','frieza')); m.set('h8', mk('b','vegeta'));
-      //   // Black pawns
-      //   ['a7','b7','c7','d7','e7','f7','g7','h7'].forEach((sq, i) => { const order = ['saibaman','chiaotzu','krillin','tien','whis','yamcha','piccolo','android_18']; m.set(sq, mk('b', order[i])); });
-      //   return m;
-      //   function mk(color, char) { const forms = FORMS[char] ?? ['base']; return { id: `${color}_${char}_${Math.random().toString(36).slice(2,9)}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms }; }
-      // }
 
       function initialRoster() {
         const m = new Map();
@@ -441,7 +419,6 @@
           }, 0);
           return () => clearTimeout(t);
         }, [game]);
-        useEffect(() => { setRoster(prev => ensureMappingStrict(game, prev)[0]); }, []);
 
         // History & engine
         const historyRef = useRef([]);
@@ -602,6 +579,7 @@
             const hidden = (isW && r > 4) || (!isW && r < 5);
             if (hidden) return; // Cannot select what you cannot see
           }
+          const pieceAt = game.get(sq);
           if (pieceAt && pieceAt.color === game.turn()) {
             const baseMoves = game.moves({ square: sq, verbose: true });
             const filtered = filterMovesByDBZRules(baseMoves, sq);
@@ -862,12 +840,11 @@
           // Check *DBZ* legality & outcome before applying:
           const out = dbzOutcomeForAttempt(game, roster, from, to, prom);
           if (out.kind === 'illegal') {
-            // Reject this move; prevent infinite loop
-            console.warn('Engine suggested illegal DBZ move:', uci);
-            pendingBest.current = null;
+            logEngine('WRN', `Engine suggested illegal DBZ move: ${uci}. Retrying...`);
             setEngineThinks(false);
-            // Do NOT immediately retry to avoid infinite loop of same bad move
-            // Just stop and let user play or let engine timeout
+            pendingBest.current = null;
+            // Add a small delay then try again to give engine a chance to find another move
+            setTimeout(enginePositionAndGo, 200);
             return;
           }
 
@@ -1005,7 +982,7 @@
                   <li>Instant defeat: Attacker with strictly higher <b>power (form)</b> captures immediately, gains <b>+1 level</b> only.</li>
                   <li>While in check: the <b>King cannot capture</b> a checking piece if that checker has <b>lives &gt; 0</b>; the king must evade.</li>
                   <li>Also while in check: only a friendly piece with <b>more lives</b> than the checker may capture that checker.</li>
-                  <li>Promotion shows choices (Q/R/B/N). Mapping: Queen→Grand Priest, Rook→Goku, Bishop→Vegeta, Knight→Gohan.</li>
+                  <li>Promotion shows choices (Q/R/B/N). Mapping: Queen→Grand Priest, Rook→Goku, Bishop→Majin Boo, Knight→Gohan Kid.</li>
                 </ul>
               </Panel>
 
