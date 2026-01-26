@@ -412,7 +412,8 @@
 
         function mk(color, char) {
           const forms = FORMS[char] ?? ['base'];
-          return { id: `${color}_${char}_${Math.random().toString(36).slice(2, 9)}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms };
+          const entropy = Math.random().toString(36).slice(2, 11) + Date.now().toString(36).slice(-4);
+          return { id: `${color}_${char}_${entropy}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms };
         }
       }
 
@@ -655,16 +656,24 @@
           setCapturedByWhite(entry.capturedByWhite || []); setCapturedByBlack(entry.capturedByBlack || []);
           setToast(entry.toast || null);
           setSelected(null); setLegal(new Set());
+
+          // Clear any active trail visuals when undoing
+          if (trailRef.current) {
+            const ctx = trailRef.current.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, trailRef.current.width, trailRef.current.height);
+          }
           return true;
         }
         function toggleTurnFen(fen, attackerColor) {
           const parts = fen.split(' '); if (parts.length < 6) return fen;
           const wasBlack = attackerColor === 'b';
+          // 1. Turn toggle
           parts[1] = parts[1] === 'w' ? 'b' : 'w';
+          // 2. Fullmove count increment
           if (wasBlack) parts[5] = String(parseInt(parts[5], 10) + 1);
-          // Increment halfmove clock as a hit is a non-restorative action
+          // 3. Halfmove clock (hits count as non-pawn/non-capture moves in FEN context, but we increment)
           parts[4] = String(parseInt(parts[4], 10) + 1);
-          // Clear en passant square as the turn has passed
+          // 4. Clear EP target as a DBZ hit consumes the turn and any EP opportunity
           parts[3] = '-';
           return parts.join(' ');
         }
@@ -1005,7 +1014,12 @@
 
         useEffect(() => { if (!engineRef.current) { bootEngine(); return; } bootEngine(); }, [hardness]);
         useEffect(() => { maybeEngineTurn(); }, [aiWhite, aiBlack, game, roster]);
-        useEffect(() => () => { try { engineRef.current?.terminate?.(); } catch (_) { } }, []);
+        useEffect(() => () => {
+          try {
+            if (thinkWatchdog.current) clearTimeout(thinkWatchdog.current);
+            engineRef.current?.terminate?.();
+          } catch (_) { }
+        }, []);
 
         // ---- UI ----
         return (
@@ -1171,71 +1185,6 @@
         );
       }
 
-      function Panel({ title, children }) {
-        return (
-          <div className="card">
-            <div style={{ fontWeight: 600, marginBottom: '8px' }}>{title}</div>
-            {children}
-          </div>
-        );
-      }
-
-      function Board({ game, roster, selected, legal, fog, onSquareClick, trailRef }) {
-        return (
-          <div className="board" style={{ position: 'relative' }}>
-            {RANKS.map((r, rIdx) =>
-              FILES.map((f, fIdx) => {
-                const sq = `${f}${r}`;
-                const dark = isDark(fIdx, rIdx);
-                const p = game.get(sq);
-                const dbz = roster.get(sq);
-                const isSel = selected === sq;
-                const isLegal = legal.has(sq);
-                // Fix #5: allow clicks through fog (mask is visual only)
-                const hide = fog && ((game.turn() === 'w' && r > 4 && (!p || p.color !== 'w')) || (game.turn() === 'b' && r < 5 && (!p || p.color !== 'b')));
-                const teamClass = p ? (p.color === 'w' ? 'team-w' : 'team-b') : '';
-
-                return (
-                  <div
-                    key={sq}
-                    onClick={() => onSquareClick(sq)}
-                    className={`relative square flex items-center justify-center select-none cursor-pointer ${dark ? 'dark' : 'light'} ${isSel ? 'highlight' : ''} ${teamClass}`}
-                    style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    {hide && <div className="absolute inset-0 mask" style={{ position: 'absolute', inset: 0 }}></div>}
-                    {isLegal && !p && !hide && <div className="absolute inset-0 legal-dot" style={{ position: 'absolute', inset: 0 }} />}
-                    {isLegal && p && !hide && <div className="absolute inset-0 capture-ring" style={{ position: 'absolute', inset: 0 }} />}
-
-                    {p && dbz && !hide && (
-                      <>
-                        <div className="team-ring" />
-                        <div className="piece-layer">
-                          <img className="piece-img" draggable="false"
-                            src={spriteUrl(dbz.char, dbz.forms[dbz.formIdx])}
-                            onError={(e) => {
-                              const fallback = spriteUrl(dbz.char, 'base');
-                              if (e.currentTarget.src !== fallback) {
-                                e.currentTarget.src = fallback;
-                              } else {
-                                e.currentTarget.style.display = 'none';
-                              }
-                            }}
-                            alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`}
-                          />
-                        </div>
-                        <div className="piece-badge">{dbz.forms[dbz.formIdx]} · ❤{dbz.life}</div>
-                      </>
-                    )}
-                  </div>
-                );
-              })
-            )}
-            <div className="overlay" aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 10 }}>
-              <canvas ref={trailRef} />
-            </div>
-          </div>
-        );
-      }
 
       // Safe mount with diagnostics
       window.__mountApp = function () {
