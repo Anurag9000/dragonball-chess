@@ -456,7 +456,14 @@
       const RANKS = [8, 7, 6, 5, 4, 3, 2, 1];
       const isDark = (fileIdx, rankIdx) => (fileIdx + rankIdx) % 2 !== 0;
 
-      function sqToFR(sq) { const f = FILES.indexOf(sq[0]); const rNum = parseInt(sq[1], 10); const rIdx = 8 - rNum; return { f, rNum, rIdx }; }
+      function sqToFR(sq) {
+        if (!sq || sq.length !== 2) return { f: -1, rNum: -1, rIdx: -1 };
+        const f = FILES.indexOf(sq[0]);
+        const rNum = parseInt(sq[1], 10);
+        if (f === -1 || isNaN(rNum) || rNum < 1 || rNum > 8) return { f: -1, rNum: -1, rIdx: -1 };
+        const rIdx = 8 - rNum;
+        return { f, rNum, rIdx };
+      }
       function frToSq(f, rNum) { if (f < 0 || f > 7 || rNum < 1 || rNum > 8) return null; return FILES[f] + String(rNum); }
 
       // --- Promotion mapping (UI choices → DBZ character for your uniform set)
@@ -566,7 +573,9 @@
               if (maxForm < formIdx) maxForm = formIdx;
               if (maxForm > forms.length - 1) maxForm = forms.length - 1;
 
-              if (JSON.stringify(forms) !== JSON.stringify(dbz.forms) || formIdx !== dbz.formIdx || maxForm !== dbz.maxForm) {
+              // Efficient array comparison instead of JSON.stringify
+              const formsChanged = forms.length !== dbz.forms?.length || !forms.every((f, i) => f === dbz.forms[i]);
+              if (formsChanged || formIdx !== dbz.formIdx || maxForm !== dbz.maxForm) {
                 dbz.forms = forms; dbz.formIdx = formIdx; dbz.maxForm = maxForm;
                 dirty = true;
               }
@@ -658,9 +667,11 @@
       function attackersOfKing(game, color) { const ks = kingSquareOf(game, color); if (!ks) return new Set(); const opp = color === 'w' ? 'b' : 'w'; return getAttackersFromColor(game, ks, opp); }
 
       function getDefenderSquare(move) {
-        if (!move) return null;
+        if (!move || !move.to) return null;
         if (move.flags && move.flags.includes('e')) {
-          return move.color === 'w' ? move.to[0] + (parseInt(move.to[1]) - 1) : move.to[0] + (parseInt(move.to[1]) + 1);
+          const toRank = parseInt(move.to[1], 10);
+          if (isNaN(toRank)) return move.to;
+          return move.color === 'w' ? move.to[0] + (toRank - 1) : move.to[0] + (toRank + 1);
         }
         return move.to;
       }
@@ -805,7 +816,15 @@
         function post(s) { try { engineRef.current?.postMessage(s); } catch (e) { logEngine('ERR', `post fail: ${e?.message || e}`); } }
         function logEngine(side, text) { const line = `[${new Date().toLocaleTimeString()}] ${side}: ${text}`; engineBuf.current.push(line); if (engineBuf.current.length > 60) engineBuf.current.splice(0, engineBuf.current.length - 60); __log(text); }
 
-        useEffect(() => { refreshStatus(); maybeEngineTurn(); }, []);
+        // Initial mount only - run once
+        useEffect(() => { refreshStatus(); }, []);
+
+        // Separate effect for engine turn management
+        useEffect(() => {
+          if (game && roster) {
+            maybeEngineTurn();
+          }
+        }, [game.fen(), aiWhite, aiBlack]);
 
         function refreshStatus() {
           if (game.isGameOver()) {
@@ -825,20 +844,27 @@
           setStatus(`${t} to move${flags ? ' — ' + flags : ''}`);
         }
 
-        function flashNotice(msg) { setToast(msg); setTimeout(() => setToast(null), 1200); }
-        function bumpMaxForm(state, newFormIdx) { const nf = Math.max(newFormIdx, state.maxForm ?? state.formIdx ?? 0); return { ...state, maxForm: nf }; }
+        const toastTimeoutRef = useRef(null);
+        function flashNotice(msg) {
+          if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+          setToast(msg);
+          toastTimeoutRef.current = setTimeout(() => setToast(null), 1200);
+        }
 
         // ========= TURN-AGNOSTIC ATTACK DETECTOR (Fix #1) =========
         // (Removed internal definitions, using extracted helpers now)
 
         // --- Visual attack trail (Fix #2: from -> attempted.to) ---
+        const canvasTimeoutRef = useRef(null);
         function drawAttackLine(move, attackerColor) {
           if (!trailRef.current) return;
           const canvas = trailRef.current;
           const rect = canvas.getBoundingClientRect();
           const w = rect.width, h = rect.height; const dpr = window.devicePixelRatio || 1;
           canvas.width = Math.max(1, Math.round(w * dpr)); canvas.height = Math.max(1, Math.round(h * dpr));
-          const ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
           const border = 4; const innerW = Math.max(0, w - border * 2); const innerH = Math.max(0, h - border * 2);
           const sqW = innerW / 8; const sqH = innerH / 8;
           const fromFile = FILES.indexOf(move.from[0]); const fromRank = 8 - parseInt(move.from[1], 10);
@@ -847,15 +873,24 @@
           ctx.strokeStyle = attackerColor === 'w' ? '#38bdf8' : '#ef4444';
           ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 12;
           ctx.beginPath(); ctx.moveTo(cx(fromFile), cy(fromRank)); ctx.lineTo(cx(toFile), cy(toRank)); ctx.stroke();
-          setTimeout(() => { ctx.clearRect(0, 0, w, h); }, 700);
+          if (canvasTimeoutRef.current) clearTimeout(canvasTimeoutRef.current);
+          canvasTimeoutRef.current = setTimeout(() => { ctx.clearRect(0, 0, w, h); }, 700);
         }
 
         // --- Material / Captures ---
         const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 };
-        function materialScore(game) {
-          let w = 0, b = 0; for (const row of game.board()) for (const cell of row) { if (!cell) continue; const v = PIECE_VALUE[cell.type] || 0; if (cell.color === 'w') w += v; else b += v; }
+        const materialScore = React.useMemo(() => {
+          let w = 0, b = 0;
+          for (const row of game.board()) {
+            for (const cell of row) {
+              if (!cell) continue;
+              const v = PIECE_VALUE[cell.type] || 0;
+              if (cell.color === 'w') w += v;
+              else b += v;
+            }
+          }
           return { w, b, diff: w - b };
-        }
+        }, [game.fen()]); // Memoize based on FEN
 
         // --- History helpers (Fix #3: restore capture arrays) ---
         function pushHistory(fenBefore) {
@@ -937,7 +972,7 @@
           }
 
           setSelected(null); setLegal(new Set());
-        }, [game, selected, legal, promo, fog, roster]); // Added roster dependency
+        }, [game, selected, legal, promo, roster]); // Removed 'fog' - passed as parameter
 
         // FILTER per requested rules (uses turn-agnostic attackers)
         function filterMovesByDBZRules(baseMoves, fromSq) {
@@ -1009,7 +1044,12 @@
 
               flashNotice('Hit absorbed! Defender life-1, level ↓');
               refreshStatus();
-              setTimeout(() => { if (!engineThinks) maybeEngineTurn(); }, 0);
+              // Use queueMicrotask for better async handling
+              queueMicrotask(() => {
+                if (!engineThinks && !game.isGameOver()) {
+                  maybeEngineTurn();
+                }
+              });
               return;
             }
 
@@ -1047,11 +1087,10 @@
 
               // Handle Power-Up (Overpower or Standard Kill)
               if (isCapture) {
-                // If overpower, gain +1 level relative to what they had ? Rules say:
-                // "captures immediately, gains +1 level only."
-                // Standard kill: "attacker life+1 & transforms." (also often +1)
-
-                const gain = (defenderState?.maxForm ?? 0) + 1;
+                // Power gain based on defender's current form level (formIdx), not maxForm
+                // This ensures consistent power progression
+                const defenderPower = defenderState?.formIdx ?? 0;
+                const gain = defenderPower + 1;
                 const newLevel = Math.min(mover.forms.length - 1, (mover.formIdx ?? 0) + gain);
                 mover.formIdx = newLevel;
                 mover.maxForm = Math.max(newLevel, mover.maxForm ?? 0);
@@ -1083,9 +1122,10 @@
               return m;
             });
 
-            // UI Feedback
-            if (isOverpower) flashNotice('Overpower! (+' + ((defenderState?.maxForm ?? 0) + 1) + ')');
-            else if (isCapture) flashNotice('Power up! (+' + ((defenderState?.maxForm ?? 0) + 1) + ')');
+            // UI Feedback - show actual power gain based on defender's formIdx
+            const powerGain = (defenderState?.formIdx ?? 0) + 1;
+            if (isOverpower) flashNotice('Overpower! (+' + powerGain + ')');
+            else if (isCapture) flashNotice('Power up! (+' + powerGain + ')');
 
             refreshStatus(); maybeEngineTurn();
           } catch (e) {
@@ -1155,7 +1195,7 @@
           if (attempted.color === 'w') setCapturedByWhite(prev => [...prev, entry]);
           else setCapturedByBlack(prev => [...prev, entry]);
         }
-        function syncRosterOnMove(from, to) { setRoster(prev => { const m = new Map(prev); const st = m.get(from); if (!st) return prev; m.delete(from); m.set(to, st); return m; }); }
+        // Removed unused syncRosterOnMove function - roster updates handled in doMove
 
         // ---------- ENGINE WIRING ----------
         function isAiTurn() { const t = game.turn(); return (t === 'w' && aiWhite) || (t === 'b' && aiBlack); }
@@ -1188,7 +1228,22 @@
               pendingBest.current = uci; applyBestMove();
             }
           };
-          eng.onerror = (err) => { logEngine('ERR', `Engine worker error: ${err?.message || err}`); engineBooting.current = false; try { engineRef.current?.terminate?.(); } catch (_) { } engineRef.current = null; setEngineReady(false); setEngineThinks(false); setTimeout(() => bootEngine(), 50); };
+          eng.onerror = (err) => {
+            logEngine('ERR', `Engine worker error: ${err?.message || err}`);
+            engineBooting.current = false;
+            try { engineRef.current?.terminate?.(); } catch (_) { }
+            engineRef.current = null;
+            setEngineReady(false);
+            setEngineThinks(false);
+            // Prevent infinite boot loop - only retry once after delay
+            if (!engineRef.current) {
+              setTimeout(() => {
+                if (!engineRef.current && !engineBooting.current) {
+                  bootEngine();
+                }
+              }, 1000);
+            }
+          };
           post('uci');
         }
         function applyStrengthFor(color) { const prof = hardnessProfile(hardness); const elo = prof.elo; if (!engineRef.current) return; post(`setoption name UCI_LimitStrength value true`); post(`setoption name UCI_Elo value ${elo}`); const skill = Math.min(20, Math.round((elo - 800) / 100)); post(`setoption name Skill Level value ${Math.max(0, skill)}`); }
@@ -1228,7 +1283,14 @@
         }
 
         function applyBestMove() {
-          const uci = pendingBest.current; if (!uci || game.isGameOver()) return;
+          const uci = pendingBest.current;
+          if (!uci || game.isGameOver()) return;
+          // Validate UCI format
+          if (uci.length < 4 || uci.length > 5) {
+            logEngine('ERR', `Invalid UCI format: ${uci}`);
+            pendingBest.current = null;
+            return;
+          }
           const from = uci.slice(0, 2), to = uci.slice(2, 4), prom = uci[4];
 
           const out = dbzOutcomeForAttempt(game, roster, from, to, prom);
@@ -1253,11 +1315,18 @@
 
         function maybeEngineTurn() { if (!isAiTurn()) return; if (!engineRef.current) { bootEngine(); return; } if (!engineReady) return; if (!engineThinks) enginePositionAndGo(); }
 
-        useEffect(() => { if (!engineRef.current) { bootEngine(); return; } bootEngine(); }, [hardness]);
-        useEffect(() => { maybeEngineTurn(); }, [aiWhite, aiBlack, game, roster]);
+        // Reboot engine when hardness changes
+        useEffect(() => {
+          bootEngine();
+        }, [hardness]);
+
+        // Removed redundant maybeEngineTurn effect - handled by main game effect above
+        // Cleanup on unmount
         useEffect(() => () => {
           try {
             if (thinkWatchdog.current) clearTimeout(thinkWatchdog.current);
+            if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+            if (canvasTimeoutRef.current) clearTimeout(canvasTimeoutRef.current);
             engineRef.current?.terminate?.();
           } catch (_) { }
         }, []);
@@ -1342,7 +1411,7 @@
 
               <Panel title="Score & Captures">
                 {(() => {
-                  const ms = materialScore(game);
+                  const ms = materialScore;
                   const renderCap = (c, i) => (
                     <div key={i} className="grid-center relative" style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(0,0,0,0.3)' }} title={c.char}>
                       <img src={spriteUrl(c.char, c.form)} style={{ maxWidth: '85%', maxHeight: '85%', objectFit: 'contain' }} alt={c.char} />
