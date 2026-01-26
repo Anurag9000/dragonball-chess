@@ -372,11 +372,25 @@
       }
 
       function ensureMappingStrict(chess, rosterMap) {
-        const out = new Map(); let changed = false;
+        const out = new Map(rosterMap); let changed = false;
+
+        // 1. Remove ghosts (roster entries that no longer exist on board)
+        for (const [sq] of rosterMap) {
+          if (!chess.get(sq)) {
+            out.delete(sq);
+            changed = true;
+          }
+        }
+
+        // 2. Add missing / Fix mismatch
         for (const f of FILES) for (const r of RANKS) {
           const sq = `${f}${r}`; const p = chess.get(sq); if (!p) continue;
-          const allowed = TYPE_ALLOWED[p.type] || new Set(); let dbz = rosterMap.get(sq);
+
+          let dbz = out.get(sq);
+          const allowed = TYPE_ALLOWED[p.type] || new Set();
+
           if (!dbz) {
+            // Case A: Missing completely
             let char = 'grand_priest';
             if (p.type === 'k') char = 'zeno';
             else if (p.type === 'q') char = 'grand_priest';
@@ -384,11 +398,20 @@
             else if (p.type === 'b') char = 'majin_boo';
             else if (p.type === 'n') char = 'gohan_kid';
             else if (p.type === 'p') { const fileIdx = FILES.indexOf(f); char = PAWN_FILES_DEFAULT[fileIdx] || 'saibaman'; }
+
             const { forms, formIdx } = clampForm(char, 0);
             dbz = { id: `${p.color}_${char}_${Math.random().toString(36).slice(2, 9)}`, color: p.color, char, life: 0, kills: 0, forms, formIdx, maxForm: 0 };
+            out.set(sq, dbz);
             changed = true;
           } else {
+            // Case B: Exist, but check validity/sync
+            let dirty = false;
             let char = dbz.char;
+
+            // Color sync
+            if (dbz.color !== p.color) { dbz.color = p.color; dirty = true; }
+
+            // Type/Char validity
             if (!allowed.has(char)) {
               if (p.type === 'k') char = 'zeno';
               else if (p.type === 'q') char = 'grand_priest';
@@ -402,19 +425,26 @@
                 }
               }
               const { forms, formIdx } = clampForm(char, dbz.formIdx ?? 0);
-              dbz = { ...dbz, char, forms, formIdx }; changed = true;
+              dbz.char = char; dbz.forms = forms; dbz.formIdx = formIdx;
+              dirty = true;
             } else {
+              // Bounds check existing form
               const { forms, formIdx } = clampForm(char, dbz.formIdx ?? 0);
               let maxForm = dbz.maxForm ?? formIdx;
               if (maxForm < formIdx) maxForm = formIdx;
               if (maxForm > forms.length - 1) maxForm = forms.length - 1;
-              if (forms !== dbz.forms || formIdx !== dbz.formIdx || maxForm !== dbz.maxForm) {
-                dbz = { ...dbz, forms, formIdx, maxForm }; changed = true;
+
+              if (JSON.stringify(forms) !== JSON.stringify(dbz.forms) || formIdx !== dbz.formIdx || maxForm !== dbz.maxForm) {
+                dbz.forms = forms; dbz.formIdx = formIdx; dbz.maxForm = maxForm;
+                dirty = true;
               }
             }
-            if (dbz.color !== p.color) { dbz = { ...dbz, color: p.color }; changed = true; }
+
+            if (dirty) {
+              out.set(sq, { ...dbz }); // Clone to trigger update
+              changed = true;
+            }
           }
-          out.set(sq, dbz);
         }
         return [out, changed];
       }
@@ -439,6 +469,68 @@
           const entropy = Math.random().toString(36).slice(2, 11) + Date.now().toString(36).slice(-4);
           return { id: `${color}_${char}_${entropy}`, color, char, life: 0, kills: 0, formIdx: 0, maxForm: 0, forms };
         }
+      }
+
+      // --- Logic Helpers (Extracted) ---
+      function getAttackersFromColor(game, targetSq, attackerColor) {
+        const { f: tf, rNum: trNum } = sqToFR(targetSq);
+        const attackers = new Set();
+        if (!game) return attackers;
+
+        // Knights
+        const kOff = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]];
+        for (const [df, dr] of kOff) {
+          const sq = frToSq(tf + df, trNum + dr); if (!sq) continue; const p = game.get(sq);
+          if (p && p.color === attackerColor && p.type === 'n') attackers.add(sq);
+        }
+        // King
+        for (let df = -1; df <= 1; df++) for (let dr = -1; dr <= 1; dr++) if (df || dr) {
+          const sq = frToSq(tf + df, trNum + dr); const p = sq ? game.get(sq) : null; if (p && p.color === attackerColor && p.type === 'k') attackers.add(sq);
+        }
+        // Pawns
+        if (attackerColor === 'w') {
+          const sq1 = frToSq(tf - 1, trNum - 1), sq2 = frToSq(tf + 1, trNum - 1);
+          const p1 = sq1 ? game.get(sq1) : null, p2 = sq2 ? game.get(sq2) : null;
+          if (p1 && p1.color === 'w' && p1.type === 'p') attackers.add(sq1);
+          if (p2 && p2.color === 'w' && p2.type === 'p') attackers.add(sq2);
+        } else {
+          const sq1 = frToSq(tf - 1, trNum + 1), sq2 = frToSq(tf + 1, trNum + 1);
+          const p1 = sq1 ? game.get(sq1) : null, p2 = sq2 ? game.get(sq2) : null;
+          if (p1 && p1.color === 'b' && p1.type === 'p') attackers.add(sq1);
+          if (p2 && p2.color === 'b' && p2.type === 'p') attackers.add(sq2);
+        }
+        // Sliders
+        const rays = [{ dirs: [[1, 0], [-1, 0], [0, 1], [0, -1]], types: new Set(['r', 'q']) }, { dirs: [[1, 1], [1, -1], [-1, 1], [-1, -1]], types: new Set(['b', 'q']) }];
+        for (const grp of rays) {
+          for (const [df, dr] of grp.dirs) {
+            let ff = tf + df, rr = trNum + dr;
+            while (true) {
+              const sq = frToSq(ff, rr); if (!sq) break; const p = game.get(sq);
+              if (!p) { ff += df; rr += dr; continue; }
+              if (p.color === attackerColor && grp.types.has(p.type)) attackers.add(sq);
+              break; // stop ray on first piece
+            }
+          }
+        }
+        return attackers;
+      }
+
+      function kingSquareOf(game, color) {
+        if (!game) return null;
+        const b = game.board();
+        for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+          const cell = b[r][c]; if (cell && cell.type === 'k' && cell.color === color) { return `${FILES[c]}${8 - r}`; }
+        }
+        return null;
+      }
+      function attackersOfKing(game, color) { const ks = kingSquareOf(game, color); if (!ks) return new Set(); const opp = color === 'w' ? 'b' : 'w'; return getAttackersFromColor(game, ks, opp); }
+
+      function getDefenderSquare(move) {
+        if (!move) return null;
+        if (move.flags && move.flags.includes('e')) {
+          return move.color === 'w' ? move.to[0] + (parseInt(move.to[1]) - 1) : move.to[0] + (parseInt(move.to[1]) + 1);
+        }
+        return move.to;
       }
 
       // ---------- Main App ----------
@@ -547,19 +639,19 @@
           return (p.color === 'w' && rank === 8) || (p.color === 'b' && rank === 1);
         }
 
-        // Normalize guards after every position change
+        // Normalize guards - Immediate check when game changes
         useEffect(() => {
-          const t = setTimeout(() => {
-            setRoster(prev => {
-              const [norm, changed] = ensureMappingStrict(game, prev);
-              if (changed) __log('Roster normalized to strict mapping');
-              return changed ? norm : prev;
-            });
-          }, 0);
-          return () => clearTimeout(t);
-        }, [game]);
+          // We do a direct check. If it needs normalization, we update.
+          // This can cause a double-render but avoids infinite loops due to 'changed' check
+          const [norm, changed] = ensureMappingStrict(game, roster);
+          if (changed) {
+            __log('Roster normalized to strict mapping');
+            setRoster(norm);
+          }
+        }, [game /* roster excluded to avoid loop, we use prev roster inside ensureMappingStrict internally if we wanted, but here we use current */]);
 
         // History & engine
+
         const historyRef = useRef([]);
         const [aiWhite, setAiWhite] = useState(false);
         const [aiBlack, setAiBlack] = useState(false);
@@ -607,62 +699,7 @@
         function bumpMaxForm(state, newFormIdx) { const nf = Math.max(newFormIdx, state.maxForm ?? state.formIdx ?? 0); return { ...state, maxForm: nf }; }
 
         // ========= TURN-AGNOSTIC ATTACK DETECTOR (Fix #1) =========
-        function attackersFromColor(targetSq, attackerColor) {
-          const { f: tf, rNum: trNum } = sqToFR(targetSq);
-          const attackers = new Set();
-
-          // Knights (must be knights)
-          const kOff = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]];
-          for (const [df, dr] of kOff) {
-            const sq = frToSq(tf + df, trNum + dr); if (!sq) continue; const p = game.get(sq);
-            if (p && p.color === attackerColor && p.type === 'n') attackers.add(sq);
-          }
-          // King
-          for (let df = -1; df <= 1; df++) for (let dr = -1; dr <= 1; dr++) if (df || dr) {
-            const sq = frToSq(tf + df, trNum + dr); const p = sq ? game.get(sq) : null; if (p && p.color === attackerColor && p.type === 'k') attackers.add(sq);
-          }
-          // Pawns
-          if (attackerColor === 'w') {
-            const sq1 = frToSq(tf - 1, trNum - 1), sq2 = frToSq(tf + 1, trNum - 1);
-            const p1 = sq1 ? game.get(sq1) : null, p2 = sq2 ? game.get(sq2) : null;
-            if (p1 && p1.color === 'w' && p1.type === 'p') attackers.add(sq1);
-            if (p2 && p2.color === 'w' && p2.type === 'p') attackers.add(sq2);
-          } else {
-            const sq1 = frToSq(tf - 1, trNum + 1), sq2 = frToSq(tf + 1, trNum + 1);
-            const p1 = sq1 ? game.get(sq1) : null, p2 = sq2 ? game.get(sq2) : null;
-            if (p1 && p1.color === 'b' && p1.type === 'p') attackers.add(sq1);
-            if (p2 && p2.color === 'b' && p2.type === 'p') attackers.add(sq2);
-          }
-          // Sliders
-          const rays = [{ dirs: [[1, 0], [-1, 0], [0, 1], [0, -1]], types: new Set(['r', 'q']) }, { dirs: [[1, 1], [1, -1], [-1, 1], [-1, -1]], types: new Set(['b', 'q']) }];
-          for (const grp of rays) {
-            for (const [df, dr] of grp.dirs) {
-              let ff = tf + df, rr = trNum + dr;
-              while (true) {
-                const sq = frToSq(ff, rr); if (!sq) break; const p = game.get(sq);
-                if (!p) { ff += df; rr += dr; continue; }
-                if (p.color === attackerColor && grp.types.has(p.type)) attackers.add(sq);
-                break; // stop ray on first piece
-              }
-            }
-          }
-          return attackers;
-        }
-        function kingSquareOf(color) {
-          const b = game.board();
-          for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
-            const cell = b[r][c]; if (cell && cell.type === 'k' && cell.color === color) { return `${FILES[c]}${8 - r}`; }
-          }
-          return null;
-        }
-        function attackersOfKing(color) { const ks = kingSquareOf(color); if (!ks) return new Set(); const opp = color === 'w' ? 'b' : 'w'; return attackersFromColor(ks, opp); }
-
-        function getDefenderSquare(move) {
-          if (move.flags.includes('e')) {
-            return move.color === 'w' ? move.to[0] + (parseInt(move.to[1]) - 1) : move.to[0] + (parseInt(move.to[1]) + 1);
-          }
-          return move.to;
-        }
+        // (Removed internal definitions, using extracted helpers now)
 
         // --- Visual attack trail (Fix #2: from -> attempted.to) ---
         function drawAttackLine(move, attackerColor) {
@@ -710,17 +747,31 @@
           }
           return true;
         }
+
         function toggleTurnFen(fen, attackerColor) {
-          const parts = fen.split(' '); if (parts.length < 6) return fen;
-          const wasBlack = attackerColor === 'b';
-          // 1. Turn toggle
-          parts[1] = parts[1] === 'w' ? 'b' : 'w';
-          // 2. Fullmove count increment
-          if (wasBlack) parts[5] = String(parseInt(parts[5], 10) + 1);
-          // 3. Halfmove clock (hits count as non-pawn/non-capture moves in FEN context, but we increment)
-          parts[4] = String(parseInt(parts[4], 10) + 1);
-          // 4. Clear EP target as a DBZ hit consumes the turn and any EP opportunity
+          // Robust FEN toggling using chess.js internals would be better, but regex is fine here
+          // FEN: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+          const parts = fen.split(/\s+/);
+          if (parts.length < 6) return fen;
+
+          const turnIndex = 1;
+          const currentTurn = parts[turnIndex];
+          const nextTurn = currentTurn === 'w' ? 'b' : 'w';
+          parts[turnIndex] = nextTurn;
+
+          // En Passant target (3) -> cleared
           parts[3] = '-';
+
+          // Halfmove clock (4) -> increment
+          let halfMoves = parseInt(parts[4], 10);
+          if (!isNaN(halfMoves)) parts[4] = String(halfMoves + 1);
+
+          // Fullmove number (5) -> increment if it was black's turn
+          if (currentTurn === 'b') {
+            let fullMoves = parseInt(parts[5], 10);
+            if (!isNaN(fullMoves)) parts[5] = String(fullMoves + 1);
+          }
+
           return parts.join(' ');
         }
 
@@ -756,13 +807,13 @@
           }
 
           setSelected(null); setLegal(new Set());
-        }, [game, selected, legal, promo, fog]);
+        }, [game, selected, legal, promo, fog, roster]); // Added roster dependency
 
         // FILTER per requested rules (uses turn-agnostic attackers)
         function filterMovesByDBZRules(baseMoves, fromSq) {
           const res = [];
           const color = game.get(fromSq)?.type === 'k' ? (game.get(fromSq).color) : (game.turn());
-          const checkingSquares = attackersOfKing(color);
+          const checkingSquares = attackersOfKing(game, color); // Updated
           const inCheck = game.isCheck();
 
           for (const m of baseMoves) {
@@ -810,7 +861,8 @@
             if (outcome.kind === 'hit_no_capture') {
               // We must simulate the engine/game processing a "turn" even though board is same
               // The DBZ rule: Defender loses form/life, turn passes.
-              const defenderSquare = getDefenderSquare({ from, to, color: game.turn(), flags: '' }); // approximation
+              const moveInfo = outcome.attemptedMove || { from, to, color: game.turn(), flags: '' };
+              const defenderSquare = getDefenderSquare(moveInfo);
               setRoster(prev => {
                 const m = new Map(prev);
                 const curr = m.get(defenderSquare); if (!curr) return prev;
@@ -865,6 +917,10 @@
 
               // Handle Power-Up (Overpower or Standard Kill)
               if (isCapture) {
+                // If overpower, gain +1 level relative to what they had ? Rules say:
+                // "captures immediately, gains +1 level only."
+                // Standard kill: "attacker life+1 & transforms." (also often +1)
+
                 const gain = (defenderState?.maxForm ?? 0) + 1;
                 const newLevel = Math.min(mover.forms.length - 1, (mover.formIdx ?? 0) + gain);
                 mover.formIdx = newLevel;
@@ -909,20 +965,33 @@
         }
 
         function dbzOutcomeForAttempt(game, roster, from, to, promotion) {
-          const attempted = game.move({ from, to, promotion: promotion || 'q' });
+          // Pre-calculations on ORIGINAL game state for checkers
+          const moverColor = game.turn();
+          const p = game.get(from);
+          if (!p || p.color !== moverColor) return { kind: 'illegal' };
+
+          // Determine Checkers BEFORE move
+          const checkingSquares = attackersOfKing(game, moverColor);
+
+          // Simulate move
+          const tempGame = new Chess(game.fen());
+          const attempted = tempGame.move({ from, to, promotion: promotion || 'q' });
           if (!attempted) return { kind: 'illegal' };
-          game.undo();
 
           const attacker = roster.get(from);
           const defenderSquare = getDefenderSquare(attempted);
           const defender = roster.get(defenderSquare);
 
-          const checkingSquares = attackersOfKing(attempted.color);
+          if (!attacker) return { kind: 'illegal' }; // Safety check
+
+          // DBZ Rule: Check Constraints
           if (checkingSquares.size > 0) {
             const mover = game.get(from);
+            // King capture checker logic
             if (mover && mover.type === 'k' && checkingSquares.has(defenderSquare) && (LIVES_OF(defender) > 0)) {
               return { kind: 'illegal' };
             }
+            // Friendly capture checker logic
             if ((attempted.captured || attempted.flags.includes('e')) && checkingSquares.has(defenderSquare)) {
               if (!(LIVES_OF(attacker) > LIVES_OF(defender))) {
                 return { kind: 'illegal' };
@@ -943,7 +1012,7 @@
           }
 
           if (defender && defenderLives > 0 && defenderPower >= attackerPower) {
-            return { kind: 'hit_no_capture' };
+            return { kind: 'hit_no_capture', attemptedMove: attempted };
           }
 
           return { kind: 'capture_normal', isPromotion: !!attempted.promotion, prom: attempted.promotion };
@@ -966,7 +1035,16 @@
           engineRef.current = null; setEngineReady(false); setEngineThinks(false); pendingBest.current = null;
           if (thinkWatchdog.current) { clearTimeout(thinkWatchdog.current); thinkWatchdog.current = null; }
           engineBuf.current = [];
-          let eng = null; try { eng = new Worker('vendor/lichess/stockfish-17-lite-single.js'); } catch (err) { logEngine('ERR', `Engine spawn failed: ${err?.message || err}`); engineBooting.current = false; return; }
+
+          let eng = null;
+          try {
+            // Fix: Explicit path or error fallback
+            eng = new Worker('vendor/lichess/stockfish-17-lite-single.js');
+          } catch (err) {
+            logEngine('ERR', `Engine spawn failed: ${err?.message || err}`);
+            engineBooting.current = false;
+            return;
+          }
           engineRef.current = eng;
           eng.onmessage = (e) => {
             const line = (typeof e.data === 'string') ? e.data : (e.data?.data ?? '');
