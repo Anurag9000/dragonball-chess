@@ -139,42 +139,41 @@
 
     /* Team visuals */
     .team-w .piece-img {
-      filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.9)) drop-shadow(0 0 16px rgba(147, 197, 253, 0.7));
+      filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.8)) drop-shadow(0 0 20px rgba(56, 189, 248, 0.4));
     }
 
     .team-b .piece-img {
-      filter: drop-shadow(0 0 6px rgba(248, 113, 113, 0.9)) drop-shadow(0 0 16px rgba(254, 202, 202, 0.7));
+      filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.8)) drop-shadow(0 0 20px rgba(239, 68, 68, 0.4));
     }
 
     .team-ring {
       position: absolute;
-      inset: 5px;
-      border-radius: 10px;
+      inset: 6px;
+      border-radius: 12px;
       pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .team-w .team-ring {
-      border: 3px solid rgba(59, 130, 246, 0.85);
-      box-shadow: 0 0 10px rgba(59, 130, 246, 0.45) inset;
+      border: 3px solid rgba(56, 189, 248, 0.85);
+      box-shadow: 0 0 15px rgba(56, 189, 248, 0.3) inset, 0 0 10px rgba(56, 189, 248, 0.2);
     }
 
     .team-b .team-ring {
       border: 3px solid rgba(239, 68, 68, 0.85);
-      box-shadow: 0 0 10px rgba(239, 68, 68, 0.45) inset;
+      box-shadow: 0 0 15px rgba(239, 68, 68, 0.3) inset, 0 0 10px rgba(239, 68, 68, 0.2);
     }
 
     .team-w .piece-badge {
-      background: rgba(59, 130, 246, 0.22);
-      border-radius: 9999px;
-      display: inline-block;
-      padding: 2px 6px;
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.4), rgba(14, 165, 233, 0.4));
+      border: 1px solid rgba(125, 211, 252, 0.3);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }
 
     .team-b .piece-badge {
-      background: rgba(239, 68, 68, 0.22);
-      border-radius: 9999px;
-      display: inline-block;
-      padding: 2px 6px;
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.4), rgba(220, 38, 38, 0.4));
+      border: 1px solid rgba(252, 165, 165, 0.3);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }
 
     .pulse {
@@ -428,9 +427,9 @@
         );
       });
 
-      const Board = React.memo(({ game, roster, selected, legal, fog, onSquareClick, trailRef, lastMove }) => {
+      const Board = React.memo(({ game, roster, selected, legal, fog, onSquareClick, trailRef, lastMove, engineThinks }) => {
         return (
-          <div className="board" style={{ position: 'relative' }}>
+          <div className="board" style={{ position: 'relative', pointerEvents: engineThinks ? 'none' : 'auto' }}>
             {RANKS.map((r, rIdx) =>
               FILES.map((f, fIdx) => {
                 const sq = `${f}${r}`;
@@ -453,12 +452,12 @@
                   <div
                     key={sq}
                     onClick={() => onSquareClick(sq, hide)}
-                    className={`relative square flex items-center justify-center select-none cursor-pointer ${dark ? 'dark' : 'light'} ${isSel ? 'highlight' : ''} ${isLast ? 'last-move' : ''} ${teamClass}`}
+                    className={`relative square flex items-center justify-center select-none cursor-pointer transition-colors duration-200 ${dark ? 'dark' : 'light'} ${isSel ? 'highlight' : ''} ${isLast ? 'last-move' : ''} ${teamClass}`}
                     style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    {hide && <div className="absolute inset-0 mask" style={{ position: 'absolute', inset: 0 }}></div>}
-                    {isLegal && !p && !hide && <div className="absolute inset-0 legal-dot" style={{ position: 'absolute', inset: 0 }} />}
-                    {isLegal && p && !hide && <div className="absolute inset-0 capture-ring" style={{ position: 'absolute', inset: 0 }} />}
+                    {hide && <div className="absolute inset-0 mask" style={{ position: 'absolute', inset: 0, zIndex: 20 }}></div>}
+                    {isLegal && !p && !hide && <div className="absolute inset-0 legal-dot" style={{ position: 'absolute', inset: 0, zIndex: 15 }} />}
+                    {isLegal && p && !hide && <div className="absolute inset-0 capture-ring" style={{ position: 'absolute', inset: 0, zIndex: 15 }} />}
 
                     {p && dbz && !hide && (
                       <>
@@ -472,16 +471,17 @@
                               else e.currentTarget.style.display = 'none';
                             }}
                             alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`}
+                            style={{ transition: 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }}
                           />
                         </div>
-                        <div className="piece-badge">{dbz.forms[dbz.formIdx]} · ❤{dbz.life}</div>
+                        <div className="piece-badge">{dbz.forms[dbz.formIdx]} · ❤{dbz.kills}</div>
                       </>
                     )}
                   </div>
                 );
               })
             )}
-            <div className="overlay" aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 10 }}>
+            <div className="overlay" aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 50 }}>
               <canvas ref={trailRef} />
             </div>
           </div>
@@ -618,6 +618,13 @@
         }
         function attackersOfKing(color) { const ks = kingSquareOf(color); if (!ks) return new Set(); const opp = color === 'w' ? 'b' : 'w'; return attackersFromColor(ks, opp); }
 
+        function getDefenderSquare(move) {
+          if (move.flags.includes('e')) {
+            return move.color === 'w' ? move.to[0] + (parseInt(move.to[1]) - 1) : move.to[0] + (parseInt(move.to[1]) + 1);
+          }
+          return move.to;
+        }
+
         // --- Visual attack trail (Fix #2: from -> attempted.to) ---
         function drawAttackLine(move, attackerColor) {
           if (!trailRef.current) return;
@@ -715,22 +722,20 @@
         // FILTER per requested rules (uses turn-agnostic attackers)
         function filterMovesByDBZRules(baseMoves, fromSq) {
           const res = [];
-          const color = game.get(fromSq)?.color; const checkingSquares = attackersOfKing(color);
+          const color = game.get(fromSq)?.color;
+          const checkingSquares = attackersOfKing(color);
           for (const m of baseMoves) {
-            // Check if capture targets a checker
-            let targetSq = m.to;
-            if (m.flags.includes('e')) {
-              // En passant: checker is on a different square
-              targetSq = m.color === 'w' ? m.to[0] + (parseInt(m.to[1]) - 1) : m.to[0] + (parseInt(m.to[1]) + 1);
-            }
+            const targetSq = getDefenderSquare(m);
 
             // A) King cannot capture a checker with lives > 0
             if (game.get(fromSq)?.type === 'k' && checkingSquares.has(targetSq)) {
-              const checkerState = roster.get(targetSq); if (LIVES_OF(checkerState) > 0) continue;
+              const checkerState = roster.get(targetSq);
+              if (LIVES_OF(checkerState) > 0) continue;
             }
             // B) Only a friendly piece with more lives than the checker may capture that checker
             if (checkingSquares.size > 0 && (m.flags.includes('c') || m.flags.includes('e')) && checkingSquares.has(targetSq)) {
-              const attackerState = roster.get(fromSq); const checkerState = roster.get(targetSq);
+              const attackerState = roster.get(fromSq);
+              const checkerState = roster.get(targetSq);
               if (!(LIVES_OF(attackerState) > LIVES_OF(checkerState))) continue;
             }
             res.push(m);
@@ -742,10 +747,6 @@
         function doMove(from, to, promotion) {
           const beforeFEN = fenBefore.current || game.fen();
 
-          // Pre-check for en passant to get the right defender square
-          const p = game.get(from);
-          const isEnPassant = p && p.type === 'p' && from[0] !== to[0] && !game.get(to);
-
           pushHistory(beforeFEN);
           const attempted = game.move({ from, to, promotion: promotion || 'q' });
           if (!attempted) { setGame(new Chess(game.fen())); historyRef.current.pop(); return; }
@@ -753,12 +754,7 @@
 
           const wasCapture = !!attempted.captured || attempted.flags.includes('e');
           const isPromotion = !!attempted.promotion;
-
-          // defender square for DBZ logic
-          let defenderSquare = to;
-          if (attempted.flags.includes('e') || isEnPassant) {
-            defenderSquare = attempted.color === 'w' ? to[0] + (parseInt(to[1]) - 1) : to[0] + (parseInt(to[1]) + 1);
-          }
+          const defenderSquare = getDefenderSquare(attempted);
 
           const moverStateBefore = roster.get(from);
           const defenderStateBefore = roster.get(defenderSquare);
@@ -771,10 +767,8 @@
               const rookTo = isKingSide ? (isWhite ? 'f1' : 'f8') : (isWhite ? 'd1' : 'd8');
               setRoster(prev => {
                 const m = new Map(prev);
-                const king = m.get(from);
-                if (king) { m.delete(from); m.set(to, king); }
-                const rook = m.get(rookFrom);
-                if (rook) { m.delete(rookFrom); m.set(rookTo, rook); }
+                const king = m.get(from); if (king) { m.delete(from); m.set(to, king); }
+                const rook = m.get(rookFrom); if (rook) { m.delete(rookFrom); m.set(rookTo, rook); }
                 return m;
               });
               refreshStatus(); setTimeout(maybeEngineTurn, 0); return;
@@ -799,7 +793,8 @@
           }
 
           // Capture path
-          const moverState = moverStateBefore; const defenderState = defenderStateBefore;
+          const moverState = moverStateBefore;
+          const defenderState = defenderStateBefore;
 
           // Visual trail
           drawAttackLine({ from, to: attempted.to }, attempted.color);
@@ -812,19 +807,22 @@
           if (defenderState && attackerPower > defenderPower) {
             setRoster(prev => {
               const m = new Map(prev);
-              let boosted = { ...(m.get(from) || moverState) };
-              const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + 1);
+              const boosted = { ...(m.get(from) || moverState) };
+              // GAIN = victim.maxForm + 1
+              const gain = (defenderState.maxForm ?? 0) + 1;
+              const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + gain);
               boosted.formIdx = newLevel;
-              boosted = bumpMaxForm(boosted, newLevel);
+              const nf = Math.max(newLevel, boosted.maxForm ?? 0);
+              boosted.maxForm = nf;
               boosted.kills = (boosted.kills || 0) + 1;
               boosted.life = (boosted.life || 0) + 1;
               m.delete(from);
               m.set(to, boosted);
-              if (attempted.flags.includes('e') || isEnPassant) m.delete(defenderSquare);
+              if (defenderSquare !== to) m.delete(defenderSquare);
               return m;
             });
             recordCaptureGlyph(attempted, defenderState);
-            flashNotice(attempted.flags.includes('e') || isEnPassant ? 'En Passant Overpower!' : 'Overpower! (+1)');
+            flashNotice('Overpower! (+' + ((defenderState.maxForm ?? 0) + 1) + ')');
             refreshStatus(); maybeEngineTurn(); return;
           }
 
@@ -832,8 +830,7 @@
           if (defenderState && defenderHasLives && (defenderPower >= attackerPower)) {
             setRoster(prev => {
               const m = new Map(prev);
-              const curr = m.get(defenderSquare);
-              if (!curr) return prev;
+              const curr = m.get(defenderSquare); if (!curr) return prev;
               const nextForm = Math.max(0, (curr.formIdx ?? 0) - 1);
               const nextLives = Math.max(0, (curr.life ?? 0) - 1);
               m.set(defenderSquare, { ...curr, formIdx: nextForm, life: nextLives });
@@ -851,13 +848,16 @@
             return;
           }
 
-          // E) Base or no lives — normal capture with +1 level & life
+          // E) Base or no lives — normal capture
           setRoster(prev => {
             const m = new Map(prev);
-            let boosted = { ...(m.get(from) || moverState) };
-            const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + 1);
+            const boosted = { ...(m.get(from) || moverState) };
+            // GAIN = victim.maxForm + 1
+            const gain = (defenderState?.maxForm ?? 0) + 1;
+            const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + gain);
             boosted.formIdx = newLevel;
-            boosted = bumpMaxForm(boosted, newLevel);
+            const nf = Math.max(newLevel, boosted.maxForm ?? 0);
+            boosted.maxForm = nf;
             boosted.kills = (boosted.kills || 0) + 1;
             boosted.life = (boosted.life || 0) + 1;
 
@@ -872,11 +872,13 @@
 
             m.delete(from);
             m.set(to, boosted);
-            if (attempted.flags.includes('e') || isEnPassant) m.delete(defenderSquare);
+            if (defenderSquare !== to) m.delete(defenderSquare);
             return m;
           });
 
-          recordCaptureGlyph(attempted, defenderState); flashNotice('Power up! (+1)'); refreshStatus(); maybeEngineTurn(); return;
+          recordCaptureGlyph(attempted, defenderState);
+          flashNotice('Power up! (+' + ((defenderState?.maxForm ?? 0) + 1) + ')');
+          refreshStatus(); maybeEngineTurn(); return;
         }
 
         function dbzOutcomeForAttempt(game, roster, from, to, promotion) {
@@ -885,28 +887,23 @@
           game.undo();
 
           const attacker = roster.get(from);
-          // Pre-check for en passant
-          const p = game.get(from);
-          const isEnPassant = p && p.type === 'p' && from[0] !== to[0] && !game.get(to);
+          const defenderSquare = getDefenderSquare(attempted);
+          const defender = roster.get(defenderSquare);
 
-          const targetSq = (attempted.flags.includes('e') || isEnPassant)
-            ? (attempted.color === 'w' ? to[0] + (parseInt(to[1]) - 1) : to[0] + (parseInt(to[1]) + 1))
-            : to;
-          const defender = roster.get(targetSq);
-
-          const checkingSquares = attackersOfKing(attempted.color === 'w' ? 'w' : 'b'); // This logic was reversed in previous version
+          const checkingSquares = attackersOfKing(attempted.color);
           if (checkingSquares.size > 0) {
-            if (p && p.type === 'k' && checkingSquares.has(to) && (LIVES_OF(defender) > 0)) {
+            const mover = game.get(from);
+            if (mover && mover.type === 'k' && checkingSquares.has(defenderSquare) && (LIVES_OF(defender) > 0)) {
               return { kind: 'illegal' };
             }
-            if (attempted.captured && checkingSquares.has(targetSq)) {
-              if (!((LIVES_OF(attacker) || 0) > (LIVES_OF(defender) || 0))) {
+            if ((attempted.captured || attempted.flags.includes('e')) && checkingSquares.has(defenderSquare)) {
+              if (!(LIVES_OF(attacker) > LIVES_OF(defender))) {
                 return { kind: 'illegal' };
               }
             }
           }
 
-          if (!attempted.captured && !attempted.flags.includes('e') && !isEnPassant) {
+          if (!attempted.captured && !attempted.flags.includes('e')) {
             return { kind: 'quiet' };
           }
 
@@ -975,8 +972,18 @@
           const prof = hardnessProfile(hardness);
           post(`setoption name Hash value ${Math.max(1, Math.min(prof.hash, 32))}`);
           post(`position fen ${fen}`);
-          if (prof.movetime && prof.movetime > 0) post(`go movetime ${prof.movetime}`);
-          else post(`go depth ${prof.depth}`);
+
+          // DBZ Fix: Only allow moves that are legal in DBZ rules
+          const allMoves = game.moves({ verbose: true });
+          const dbzMoves = allMoves.filter(m => dbzOutcomeForAttempt(game, roster, m.from, m.to, m.promotion).kind !== 'illegal');
+          const uciFilter = dbzMoves.map(m => m.from + m.to + (m.promotion || '')).join(' ');
+
+          const goCmd = (prof.movetime && prof.movetime > 0) ? `go movetime ${prof.movetime}` : `go depth ${prof.depth}`;
+          if (uciFilter) {
+            post(`go searchmoves ${uciFilter} ${goCmd.replace('go ', '')}`);
+          } else {
+            post(goCmd);
+          }
 
           setEngineThinks(true);
           if (thinkWatchdog.current) clearTimeout(thinkWatchdog.current);
@@ -994,7 +1001,6 @@
             logEngine('WRN', `Engine suggested illegal DBZ move: ${uci}. Forcing search update...`);
             setEngineThinks(false);
             pendingBest.current = null;
-            // Prevent search from getting stuck by slightly clearing engine's state if possible
             post('stop');
             setTimeout(enginePositionAndGo, 100);
             return;
@@ -1025,9 +1031,11 @@
         return (
           <div className="container">
             <div className="card">
-              <div style={{ fontSize: '20px', fontWeight: 600, marginBottom: '12px' }}>DragonBall Chess</div>
+              <div style={{ fontSize: '20px', fontWeight: 600, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '24px' }}>🐉</span> DragonBall Chess
+              </div>
               <div className="relative">
-                <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} trailRef={trailRef} lastMove={lastMove} />
+                <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} trailRef={trailRef} lastMove={lastMove} engineThinks={engineThinks} />
                 {engineThinks && (
                   <div style={{ position: 'absolute', right: '8px', top: '8px', background: 'rgba(2,6,23,0.7)', padding: '6px 12px', borderRadius: '10px', fontSize: '12px', border: '1px solid #3b82f6', color: '#60a5fa' }}>
                     <span className="pulse-slow">{game.turn() === 'w' ? 'Goku' : 'Frieza'} (AI) thinking...</span>
