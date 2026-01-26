@@ -135,7 +135,22 @@
       margin: 0 auto;
       pointer-events: none;
       backdrop-filter: blur(3px);
+      transition: all 0.3s ease;
     }
+
+    @keyframes appear {
+      from {
+        transform: scale(0.5);
+        opacity: 0;
+      }
+
+      to {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    /* Team visuals */
 
     /* Team visuals */
     .team-w .piece-img {
@@ -437,13 +452,16 @@
         );
       });
 
-      const Board = React.memo(({ game, roster, selected, legal, fog, onSquareClick, trailRef, lastMove, engineThinks }) => {
+      const Board = React.memo(({ game, roster, selected, legal, fog, onSquareClick, trailRef, lastMove, engineThinks, flipped }) => {
+        const ranksToShow = flipped ? [...RANKS].reverse() : RANKS;
+        const filesToShow = flipped ? [...FILES].reverse() : FILES;
+
         return (
           <div className="board" style={{ position: 'relative', pointerEvents: engineThinks ? 'none' : 'auto' }}>
-            {RANKS.map((r, rIdx) =>
-              FILES.map((f, fIdx) => {
+            {ranksToShow.map((r, rIdx) =>
+              filesToShow.map((f, fIdx) => {
                 const sq = `${f}${r}`;
-                const dark = isDark(fIdx, rIdx);
+                const dark = isDark(FILES.indexOf(f), 8 - r); // Recalculate dark based on absolute coords
                 const p = game.get(sq);
                 const dbz = roster.get(sq);
                 const isSel = selected === sq;
@@ -488,7 +506,10 @@
                               else e.currentTarget.style.display = 'none';
                             }}
                             alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`}
-                            style={{ transition: 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }}
+                            style={{
+                              transition: 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                              animation: 'appear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)'
+                            }}
                           />
                         </div>
                         <div className="piece-badge">{dbz.forms[dbz.formIdx]} · ❤{dbz.kills}</div>
@@ -515,6 +536,7 @@
         const fenBefore = useRef('');
         const [toast, setToast] = useState(null);
         const [fog, setFog] = useState(false);
+        const [flipped, setFlipped] = useState(false);
         const trailRef = useRef(null);
         // Promotion UI state: when a pawn reaches last rank and user must choose
         const [promo, setPromo] = useState(null); // { from, to, color } | null
@@ -774,91 +796,21 @@
         function doMove(from, to, promotion) {
           try {
             const beforeFEN = fenBefore.current || game.fen();
-            const p = game.get(from);
-            // Pre-check for en passant to get the right defender square
-            const isEnPassant = p && p.type === 'p' && from[0] !== to[0] && !game.get(to);
+            // Pre-calculation of outcome to decide logic path
+            const outcome = dbzOutcomeForAttempt(game, roster, from, to, promotion);
 
-            pushHistory(beforeFEN);
-            const attempted = game.move({ from, to, promotion: promotion || 'q' });
-            if (!attempted) { setGame(new Chess(game.fen())); historyRef.current.pop(); return; }
-            setLastMove({ from, to });
-
-            const wasCapture = !!attempted.captured || attempted.flags.includes('e');
-            const isPromotion = !!attempted.promotion;
-            const defenderSquare = getDefenderSquare(attempted);
-
-            const moverStateBefore = roster.get(from);
-            const defenderStateBefore = roster.get(defenderSquare);
-
-            if (!wasCapture) {
-              // Castling: mirror rook move in roster
-              if (attempted.flags.includes('k') || attempted.flags.includes('q')) {
-                const isWhite = attempted.color === 'w'; const isKingSide = attempted.flags.includes('k');
-                const rookFrom = isKingSide ? (isWhite ? 'h1' : 'h8') : (isWhite ? 'a1' : 'a8');
-                const rookTo = isKingSide ? (isWhite ? 'f1' : 'f8') : (isWhite ? 'd1' : 'd8');
-                setRoster(prev => {
-                  const m = new Map(prev);
-                  const king = m.get(from); if (king) { m.delete(from); m.set(to, king); }
-                  const rook = m.get(rookFrom); if (rook) { m.delete(rookFrom); m.set(rookTo, rook); }
-                  return m;
-                });
-                refreshStatus(); setTimeout(maybeEngineTurn, 0); return;
-              }
-              // Promotion reskin
-              if (isPromotion) {
-                const promCode = attempted.promotion || promotion || 'q';
-                const newChar = PROMO_CHAR[promCode] || 'grand_priest';
-                const newForms = FORMS[newChar] || ['base'];
-                setRoster(prev => {
-                  const m = new Map(prev);
-                  const moverPrev = m.get(from); if (!moverPrev) return prev;
-                  const promoted = { ...moverPrev, char: newChar, forms: newForms, formIdx: 0, maxForm: 0 };
-                  m.delete(from); m.set(to, promoted);
-                  return m;
-                });
-                refreshStatus(); setTimeout(maybeEngineTurn, 0); return;
-              }
-
-              // Regular quiet move
-              syncRosterOnMove(from, to); refreshStatus(); maybeEngineTurn(); return;
+            // 1. Illegal move filter (should be caught by UI, but double check)
+            if (outcome.kind === 'illegal') {
+              flashNotice('Illegal move!');
+              setGame(new Chess(beforeFEN));
+              return;
             }
 
-            // Capture path
-            const moverState = moverStateBefore;
-            const defenderState = defenderStateBefore;
-
-            // Visual trail
-            drawAttackLine({ from, to: attempted.to }, attempted.color);
-
-            const attackerPower = POWER_OF(moverState);
-            const defenderPower = POWER_OF(defenderState);
-            const defenderHasLives = LIVES_OF(defenderState) > 0;
-
-            // C) Overpower: attacker power > defender power
-            if (defenderState && attackerPower > defenderPower) {
-              setRoster(prev => {
-                const m = new Map(prev);
-                const boosted = { ...(m.get(from) || moverState) };
-                // GAIN = victim.maxForm + 1
-                const gain = (defenderState.maxForm ?? 0) + 1;
-                const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + gain);
-                boosted.formIdx = newLevel;
-                const nf = Math.max(newLevel, boosted.maxForm ?? 0);
-                boosted.maxForm = nf;
-                boosted.kills = (boosted.kills || 0) + 1;
-                boosted.life = (boosted.life || 0) + 1;
-                m.delete(from);
-                m.set(to, boosted);
-                if (defenderSquare !== to) m.delete(defenderSquare);
-                return m;
-              });
-              recordCaptureGlyph(attempted, defenderState);
-              flashNotice('Overpower! (+' + ((defenderState.maxForm ?? 0) + 1) + ')');
-              refreshStatus(); maybeEngineTurn(); return;
-            }
-
-            // D) Defender soaks the hit if it has lives and power >= attacker's power
-            if (defenderState && defenderHasLives && (defenderPower >= attackerPower)) {
+            // 2. Hit Logic (Turn passes, board resets, defender degrades)
+            if (outcome.kind === 'hit_no_capture') {
+              // We must simulate the engine/game processing a "turn" even though board is same
+              // The DBZ rule: Defender loses form/life, turn passes.
+              const defenderSquare = getDefenderSquare({ from, to, color: game.turn(), flags: '' }); // approximation
               setRoster(prev => {
                 const m = new Map(prev);
                 const curr = m.get(defenderSquare); if (!curr) return prev;
@@ -868,10 +820,10 @@
                 return m;
               });
 
-              // If it's a hit, we MUST not consume the turn's move count or EP/Castle rights
-              // but we still want the turn to pass. Toggle turn manually on the PREVIOUS FEN.
-              const toggledFen = toggleTurnFen(beforeFEN, attempted.color);
+              // Manually toggle turn on the FEN because chess.js didn't move
+              const toggledFen = toggleTurnFen(beforeFEN, game.turn());
               setGame(new Chess(toggledFen));
+              pushHistory(beforeFEN); // Save state *before* the hit
 
               flashNotice('Hit absorbed! Defender life-1, level ↓');
               refreshStatus();
@@ -879,36 +831,76 @@
               return;
             }
 
-            // E) Base or no lives — normal capture
+            // 3. Actual Move (Quiet or Capture)
+            pushHistory(beforeFEN);
+            const moveResult = game.move({ from, to, promotion: promotion || 'q' });
+            if (!moveResult) {
+              // Should not happen if outcome != illegal, but safety net
+              setGame(new Chess(beforeFEN)); historyRef.current.pop(); return;
+            }
+            setLastMove({ from, to });
+
+            // Apply Roster Changes based on Outcome
+            const isCapture = outcome.kind.includes('capture');
+            const isOverpower = outcome.kind === 'capture_overpower';
+            const defenderSquare = getDefenderSquare(moveResult);
+            const defenderState = roster.get(defenderSquare); // State BEFORE update (from closure or fresh get?)
+            // Note: roster.get(defenderSquare) here might be looking at the *moved* piece if we aren't careful?
+            // Wait - we just moved in `game`. But `roster` is React state, it hasn't updated yet.
+            // So `roster.get(defenderSquare)` is correct (old state).
+
             setRoster(prev => {
               const m = new Map(prev);
-              const boosted = { ...(m.get(from) || moverState) };
-              // GAIN = victim.maxForm + 1
-              const gain = (defenderState?.maxForm ?? 0) + 1;
-              const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + gain);
-              boosted.formIdx = newLevel;
-              const nf = Math.max(newLevel, boosted.maxForm ?? 0);
-              boosted.maxForm = nf;
-              boosted.kills = (boosted.kills || 0) + 1;
-              boosted.life = (boosted.life || 0) + 1;
+              const mover = { ...(m.get(from) || { char: 'unknown', forms: [], formIdx: 0 }) };
 
-              if (isPromotion) {
-                const promCode = attempted.promotion || promotion || 'q';
+              // Handle Promotion (Change char/forms)
+              if (outcome.isPromotion) {
+                const promCode = outcome.prom || 'q';
                 const newChar = PROMO_CHAR[promCode] || 'grand_priest';
-                boosted.char = newChar;
-                boosted.forms = FORMS[newChar] || ['base'];
-                boosted.formIdx = 0;
-                boosted.maxForm = 0;
+                mover.char = newChar;
+                mover.forms = FORMS[newChar] || ['base'];
+                mover.formIdx = 0;
+                mover.maxForm = 0;
               }
 
+              // Handle Power-Up (Overpower or Standard Kill)
+              if (isCapture) {
+                const gain = (defenderState?.maxForm ?? 0) + 1;
+                const newLevel = Math.min(mover.forms.length - 1, (mover.formIdx ?? 0) + gain);
+                mover.formIdx = newLevel;
+                mover.maxForm = Math.max(newLevel, mover.maxForm ?? 0);
+                mover.kills = (mover.kills || 0) + 1;
+                mover.life = (mover.life || 0) + 1;
+
+                recordCaptureGlyph(moveResult, defenderState);
+              }
+
+              // Move entry
               m.delete(from);
-              m.set(to, boosted);
-              if (defenderSquare !== to) m.delete(defenderSquare);
+              m.set(to, mover);
+
+              // Remove defender if it wasn't the destination (En Passant)
+              if (isCapture && defenderSquare !== to) {
+                m.delete(defenderSquare);
+              }
+
+              // Castling (Rook Follow-up)
+              if (moveResult.flags.includes('k') || moveResult.flags.includes('q')) {
+                const isWhite = moveResult.color === 'w';
+                const isKingSide = moveResult.flags.includes('k');
+                const rookFrom = isKingSide ? (isWhite ? 'h1' : 'h8') : (isWhite ? 'a1' : 'a8');
+                const rookTo = isKingSide ? (isWhite ? 'f1' : 'f8') : (isWhite ? 'd1' : 'd8');
+                const rook = m.get(rookFrom);
+                if (rook) { m.delete(rookFrom); m.set(rookTo, rook); }
+              }
+
               return m;
             });
 
-            recordCaptureGlyph(attempted, defenderState);
-            flashNotice('Power up! (+' + ((defenderState?.maxForm ?? 0) + 1) + ')');
+            // UI Feedback
+            if (isOverpower) flashNotice('Overpower! (+' + ((defenderState?.maxForm ?? 0) + 1) + ')');
+            else if (isCapture) flashNotice('Power up! (+' + ((defenderState?.maxForm ?? 0) + 1) + ')');
+
             refreshStatus(); maybeEngineTurn();
           } catch (e) {
             __log('doMove Error:', e.message);
@@ -1070,7 +1062,7 @@
                 <span style={{ fontSize: '24px' }}>🐉</span> DragonBall Chess
               </div>
               <div className="relative">
-                <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} trailRef={trailRef} lastMove={lastMove} engineThinks={engineThinks} />
+                <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} trailRef={trailRef} lastMove={lastMove} engineThinks={engineThinks} flipped={flipped} />
                 {engineThinks && (
                   <div style={{ position: 'absolute', right: '8px', top: '8px', background: 'rgba(2,6,23,0.7)', padding: '6px 12px', borderRadius: '10px', fontSize: '12px', border: '1px solid #3b82f6', color: '#60a5fa' }}>
                     <span className="pulse-slow">{game.turn() === 'w' ? 'Goku' : 'Frieza'} (AI) thinking...</span>
@@ -1121,6 +1113,7 @@
                     const g = new Chess(); setGame(g); setRoster(initialRoster()); setSelected(null); setLegal(new Set()); setCapturedByWhite([]); setCapturedByBlack([]); setLastMove(null); historyRef.current = []; refreshStatus(); maybeEngineTurn();
                   }}>Restart</button>
                   <button className="btn" onClick={() => setFog(f => !f)}>{fog ? 'Fog: ON' : 'Fog: OFF'}</button>
+                  <button className="btn" onClick={() => setFlipped(f => !f)}>Flip Board</button>
                   <button className="btn" onClick={() => {
                     try { post('stop'); } catch (_) { }
                     setEngineThinks(false);
