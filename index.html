@@ -288,12 +288,144 @@
       position: absolute;
       inset: 0;
       pointer-events: none;
+      z-index: 50;
     }
 
     .overlay>canvas {
       width: 100%;
       height: 100%;
       display: block;
+    }
+
+    /* Utility Helpers */
+    .flex-center {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .absolute-inset {
+      position: absolute;
+      inset: 0;
+    }
+
+    .z-10 {
+      z-index: 10;
+    }
+
+    .z-15 {
+      z-index: 15;
+    }
+
+    .z-20 {
+      z-index: 20;
+    }
+
+    .z-50 {
+      z-index: 50;
+    }
+
+    .pointer-events-none {
+      pointer-events: none;
+    }
+
+    .cursor-pointer {
+      cursor: pointer;
+    }
+
+    .relative {
+      position: relative;
+    }
+
+    .w-full {
+      width: 100%;
+    }
+
+    .h-full {
+      height: 100%;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+
+    .modal-content {
+      background: #111827;
+      border: 1px solid #374151;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .mt-2 {
+      margin-top: 8px;
+    }
+
+    .mt-4 {
+      margin-top: 16px;
+    }
+
+    .mb-2 {
+      margin-bottom: 8px;
+    }
+
+    .gap-2 {
+      gap: 8px;
+    }
+
+    .gap-3 {
+      gap: 12px;
+    }
+
+    .grid-center {
+      display: grid;
+      place-items: center;
+    }
+
+    .opacity-90 {
+      opacity: 0.9;
+    }
+
+    .text-xs {
+      font-size: 12px;
+    }
+
+    .text-sm {
+      font-size: 14px;
+    }
+
+    .font-bold {
+      font-weight: 700;
+    }
+
+    /* React style prop compat or use pure css */
+    .font-semibold {
+      font-weight: 600;
+    }
+
+    /* Toast */
+    .toast-container {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 12px;
+      font-size: 14px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+      color: #fff;
+      z-index: 100;
     }
   </style>
 </head>
@@ -538,7 +670,7 @@
       const Panel = React.memo(({ title, children }) => {
         return (
           <div className="card">
-            <div style={{ fontWeight: 600, marginBottom: '8px' }}>{title}</div>
+            <div className="font-semibold mb-2">{title}</div>
             {children}
           </div>
         );
@@ -549,18 +681,17 @@
         const filesToShow = flipped ? [...FILES].reverse() : FILES;
 
         return (
-          <div className="board" style={{ position: 'relative', pointerEvents: engineThinks ? 'none' : 'auto' }}>
+          <div className="board relative" style={{ pointerEvents: engineThinks ? 'none' : 'auto' }}>
             {ranksToShow.map((r, rIdx) =>
               filesToShow.map((f, fIdx) => {
                 const sq = `${f}${r}`;
-                const dark = isDark(FILES.indexOf(f), 8 - r); // Recalculate dark based on absolute coords
+                const dark = isDark(FILES.indexOf(f), 8 - r);
                 const p = game.get(sq);
                 const dbz = roster.get(sq);
                 const isSel = selected === sq;
                 const isLegal = legal.has(sq);
                 const isLast = lastMove && (lastMove.from === sq || lastMove.to === sq);
 
-                // Fog check: hidden if fog is on AND (it's not your side AND (no piece OR not your piece))
                 const turn = game.turn();
                 const hide = fog && (
                   (turn === 'w' && r > 4 && (!p || p.color !== 'w')) ||
@@ -579,12 +710,11 @@
                     aria-label={label}
                     onClick={() => onSquareClick(sq, hide)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSquareClick(sq, hide); } }}
-                    className={`relative square flex items-center justify-center select-none cursor-pointer transition-colors duration-200 ${dark ? 'dark' : 'light'} ${isSel ? 'highlight' : ''} ${isLast ? 'last-move' : ''} ${teamClass} outline-none focus:ring-4 focus:ring-blue-400 focus:ring-opacity-50`}
-                    style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    className={`relative square flex-center select-none cursor-pointer transition-colors duration-200 ${dark ? 'dark' : 'light'} ${isSel ? 'highlight' : ''} ${isLast ? 'last-move' : ''} ${teamClass} outline-none focus:ring-4 focus:ring-blue-400 focus:ring-opacity-50`}
                   >
-                    {hide && <div className="absolute inset-0 mask" style={{ position: 'absolute', inset: 0, zIndex: 20 }}></div>}
-                    {isLegal && !p && !hide && <div className="absolute inset-0 legal-dot" style={{ position: 'absolute', inset: 0, zIndex: 15 }} />}
-                    {isLegal && p && !hide && <div className="absolute inset-0 capture-ring" style={{ position: 'absolute', inset: 0, zIndex: 15 }} />}
+                    {hide && <div className="absolute-inset mask z-20"></div>}
+                    {isLegal && !p && !hide && <div className="absolute-inset legal-dot z-15" />}
+                    {isLegal && p && !hide && <div className="absolute-inset capture-ring z-15" />}
 
                     {p && dbz && !hide && (
                       <>
@@ -611,7 +741,7 @@
                 );
               })
             )}
-            <div className="overlay" aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 50 }}>
+            <div className="overlay" aria-hidden="true" style={{ pointerEvents: 'none' }}>
               <canvas ref={trailRef} />
             </div>
           </div>
@@ -1136,46 +1266,44 @@
         return (
           <div className="container">
             <div className="card">
-              <div style={{ fontSize: '20px', fontWeight: 600, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="font-semibold mb-2 flex-center gap-2" style={{ fontSize: '20px' }}>
                 <span style={{ fontSize: '24px' }}>🐉</span> DragonBall Chess
               </div>
               <div className="relative">
                 <Board game={game} roster={roster} selected={selected} legal={legal} fog={fog} onSquareClick={onSquareClick} trailRef={trailRef} lastMove={lastMove} engineThinks={engineThinks} flipped={flipped} />
                 {engineThinks && (
-                  <div style={{ position: 'absolute', right: '8px', top: '8px', background: 'rgba(2,6,23,0.7)', padding: '6px 12px', borderRadius: '10px', fontSize: '12px', border: '1px solid #3b82f6', color: '#60a5fa' }}>
-                    <span className="pulse-slow">{game.turn() === 'w' ? 'Goku' : 'Frieza'} (AI) thinking...</span>
+                  <div className="absolute z-50 text-xs pulse-slow" style={{ right: '8px', top: '8px', background: 'rgba(2,6,23,0.7)', padding: '6px 12px', borderRadius: '10px', border: '1px solid #3b82f6', color: '#60a5fa' }}>
+                    {game.turn() === 'w' ? 'Goku' : 'Frieza'} (AI) thinking...
                   </div>
                 )}
               </div>
               {promo && (
-                <div style={{
-                  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
-                }}>
-                  <div style={{ background: '#111827', border: '1px solid #374151', borderRadius: 12, padding: 16, boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
-                    <div style={{ fontWeight: 700, marginBottom: 10, textAlign: 'center' }}>Choose promotion</div>
-                    <div style={{ display: 'flex', gap: 12 }}>
+                <div className="modal-backdrop">
+                  <div className="modal-content">
+                    <div className="font-bold mb-2 text-center">Choose promotion</div>
+                    <div className="flex-center gap-3">
                       {PROMO_OPTIONS.map(code => {
                         const char = PROMO_CHAR[code];
                         const form = (FORMS[char] || ['base'])[0];
                         return (
                           <button key={code}
                             onClick={() => { setPromo(null); doMove(promo.from, promo.to, code); }}
-                            style={{ background: '#1f2937', border: '1px solid #4b5563', padding: 8, borderRadius: 10, cursor: 'pointer' }}>
-                            <div style={{ width: 72, height: 72, display: 'grid', placeItems: 'center' }}>
+                            className="cursor-pointer"
+                            style={{ background: '#1f2937', border: '1px solid #4b5563', padding: 8, borderRadius: 10 }}>
+                            <div className="grid-center" style={{ width: 72, height: 72 }}>
                               <img draggable="false" style={{ maxWidth: '100%', maxHeight: '100%' }}
                                 src={spriteUrl(char, form)}
                                 onError={e => e.currentTarget.style.display = 'none'}
                                 alt={char} />
                             </div>
-                            <div style={{ fontSize: 12, marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'center', opacity: .9 }}>
+                            <div className="text-xs mt-2 text-center opacity-90" style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
                               {({ q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' })[code]}
                             </div>
                           </button>
                         );
                       })}
                     </div>
-                    <div style={{ textAlign: 'center', marginTop: 10 }}>
+                    <div className="text-center mt-2">
                       <button className="btn" onClick={() => setPromo(null)}>Cancel</button>
                     </div>
                   </div>
@@ -1203,10 +1331,10 @@
 
             <aside className="stack">
               <Panel title="Engine Log">
-                <div style={{ fontSize: 12, maxHeight: 180, overflow: 'auto', background: '#0b1220', padding: 8, borderRadius: 8 }}>
+                <div className="text-xs" style={{ maxHeight: 180, overflow: 'auto', background: '#0b1220', padding: 8, borderRadius: 8 }}>
                   {(engineBuf.current || []).map((l, i) => <div key={i} style={{ whiteSpace: 'pre-wrap' }}>{l}</div>)}
                 </div>
-                <div style={{ fontSize: 12, opacity: .9, marginTop: 6 }}>
+                <div className="text-xs opacity-90 mt-2">
                   Ready: <b>{String(engineReady)}</b> · Thinking: <b>{String(engineThinks)}</b><br />
                   FEN: <code style={{ fontSize: 11 }}>{game.fen()}</code>
                 </div>
@@ -1216,7 +1344,7 @@
                 {(() => {
                   const ms = materialScore(game);
                   const renderCap = (c, i) => (
-                    <div key={i} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(0,0,0,0.3)', display: 'grid', placeItems: 'center', position: 'relative' }} title={c.char}>
+                    <div key={i} className="grid-center relative" style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(0,0,0,0.3)' }} title={c.char}>
                       <img src={spriteUrl(c.char, c.form)} style={{ maxWidth: '85%', maxHeight: '85%', objectFit: 'contain' }} alt={c.char} />
                     </div>
                   );
@@ -1233,16 +1361,16 @@
               </Panel>
 
               <Panel title="Engine">
-                <div className="row" style={{ alignItems: 'center' }}>
-                  <label style={{ fontSize: 12, opacity: 0.9, width: 90 }}>AI as White</label>
+                <div className="row flex-center">
+                  <label className="text-xs opacity-90" style={{ width: 90 }}>AI as White</label>
                   <input type="checkbox" checked={aiWhite} onChange={e => setAiWhite(e.target.checked)} />
                 </div>
-                <div className="row" style={{ alignItems: 'center' }}>
-                  <label style={{ fontSize: 12, opacity: 0.9, width: 90 }}>AI as Black</label>
+                <div className="row flex-center">
+                  <label className="text-xs opacity-90" style={{ width: 90 }}>AI as Black</label>
                   <input type="checkbox" checked={aiBlack} onChange={e => setAiBlack(e.target.checked)} />
                 </div>
-                <div className="row" style={{ alignItems: 'center', marginTop: 8 }}>
-                  <label style={{ fontSize: 12, opacity: 0.9, width: 90 }}>Hardness</label>
+                <div className="row flex-center mt-2">
+                  <label className="text-xs opacity-90" style={{ width: 90 }}>Hardness</label>
                   <select className="btn" value={hardness} onChange={e => setHardness(e.target.value)}>
                     <option>Easy</option>
                     <option>Normal</option>
@@ -1251,7 +1379,7 @@
                   </select>
                   <button className="btn" onClick={bootEngine} disabled={engineThinks} style={{ marginLeft: 8 }}>Apply</button>
                 </div>
-                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
+                <div className="text-xs opacity-90 mt-2">
                   Engine strength & think time auto-tuned by Hardness.
                 </div>
               </Panel>
@@ -1261,13 +1389,13 @@
                   <div><b>Side:</b> {game.turn() === 'w' ? 'White' : 'Black'}</div>
                   <div><b>Check:</b> {game.isCheck() ? 'Yes' : 'No'}</div>
                   <div><b>Stalemate:</b> {game.isStalemate() ? 'Yes' : 'No'}</div>
-                  <div><b>Castling Rights:</b> <code style={{ fontSize: '12px' }}>{game.fen().split(' ')[2]}</code></div>
-                  <div><b>En Passant:</b> <code style={{ fontSize: '12px' }}>{game.fen().split(' ')[3]}</code></div>
+                  <div><b>Castling Rights:</b> <code className="text-xs">{game.fen().split(' ')[2]}</code></div>
+                  <div><b>En Passant:</b> <code className="text-xs">{game.fen().split(' ')[3]}</code></div>
                 </div>
               </Panel>
 
               <Panel title="DBZ Rules (active)">
-                <ul style={{ paddingLeft: '18px', fontSize: '14px', lineHeight: 1.5 }}>
+                <ul className="text-sm" style={{ paddingLeft: '18px', lineHeight: 1.5 }}>
                   <li>On kill: attacker <b>life+1</b> & transforms.</li>
                   <li>On hit when defender has life &gt; 0: defender <b>form-1</b>, positions unchanged, <b>turn passes</b>.</li>
                   <li>Instant defeat: Attacker with strictly higher <b>power (form)</b> captures immediately, gains <b>+1 level</b> only.</li>
@@ -1278,7 +1406,7 @@
               </Panel>
 
               <Panel title="Assets">
-                <div style={{ fontSize: '12px', opacity: 0.9 }}>
+                <div className="text-xs opacity-90">
                   Place sprites as PNGs:
                   <pre style={{ marginTop: '8px', background: '#0b1220', padding: '8px', borderRadius: '8px' }}>assets/pieces/goku/base.png, kaioken.png, ssj.png, ...
                     assets/pieces/vegeta/base.png, ssj.png, ssj2.png, ssb.png, ultra_ego.png
@@ -1291,7 +1419,7 @@
             </aside>
 
             {toast && (
-              <div style={{ position: 'fixed', bottom: '16px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.7)', padding: '8px 12px', borderRadius: '12px', fontSize: '14px', boxShadow: '0 8px 20px rgba(0,0,0,0.35)' }}>
+              <div className="toast-container">
                 {toast}
               </div>
             )}
@@ -1326,7 +1454,7 @@
       })();
   </script>
 
-  <script> console.log('Booting DBZ Chess…'); __log('Booting…'); </script>
+  <script> __log('Booting…'); </script>
 </body>
 
 </html>
