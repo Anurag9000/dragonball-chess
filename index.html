@@ -214,6 +214,9 @@
       border: 4px solid #334155;
       border-radius: 12px;
       overflow: hidden;
+      width: 100%;
+      max-width: 640px;
+      margin: 0 auto;
     }
 
     .btn {
@@ -300,7 +303,12 @@
         gohan_kid: ['base', 'ssj', 'ssj2', 'ssj3', 'mystic', 'beast'], gotenks: ['base', 'ssj', 'ssj2', 'ssj3'],
       };
 
-      function spriteUrl(char, formKey) { return `assets/pieces/${char}/${formKey}.png`; }
+      function spriteUrl(char, formKey) {
+        if (!char) return '';
+        const forms = FORMS[char] || ['base'];
+        const key = forms.includes(formKey) ? formKey : forms[0];
+        return `assets/pieces/${char}/${key}.png`;
+      }
 
       const TYPE_ALLOWED = {
         k: new Set(['zeno']), q: new Set(['grand_priest']), r: new Set(['goku', 'vegeta']),
@@ -623,6 +631,11 @@
         // --- Core move pipeline ---
         function doMove(from, to, promotion) {
           const beforeFEN = fenBefore.current || game.fen();
+
+          // Pre-check for en passant to get the right defender square
+          const p = game.get(from);
+          const isEnPassant = p && p.type === 'p' && from[0] !== to[0] && !game.get(to);
+
           pushHistory(beforeFEN);
           const attempted = game.move({ from, to, promotion: promotion || 'q' });
           if (!attempted) { setGame(new Chess(game.fen())); historyRef.current.pop(); return; }
@@ -630,9 +643,12 @@
           const wasCapture = !!attempted.captured || attempted.flags.includes('e');
           const isPromotion = !!attempted.promotion;
 
-          // En passant defender square (logic only)
+          // defender square for DBZ logic
           let defenderSquare = to;
-          if (attempted.flags.includes('e')) { defenderSquare = attempted.color === 'w' ? to[0] + (parseInt(to[1]) - 1) : to[0] + (parseInt(to[1]) + 1); }
+          if (attempted.flags.includes('e') || isEnPassant) {
+            defenderSquare = attempted.color === 'w' ? to[0] + (parseInt(to[1]) - 1) : to[0] + (parseInt(to[1]) + 1);
+          }
+
           const moverStateBefore = roster.get(from);
           const defenderStateBefore = roster.get(defenderSquare);
 
@@ -642,7 +658,14 @@
               const isWhite = attempted.color === 'w'; const isKingSide = attempted.flags.includes('k');
               const rookFrom = isKingSide ? (isWhite ? 'h1' : 'h8') : (isWhite ? 'a1' : 'a8');
               const rookTo = isKingSide ? (isWhite ? 'f1' : 'f8') : (isWhite ? 'd1' : 'd8');
-              setRoster(prev => { const m = new Map(prev); const king = m.get(from); if (king) { m.delete(from); m.set(to, king); } const rook = m.get(rookFrom); if (rook) { m.delete(rookFrom); m.set(rookTo, rook); } return m; });
+              setRoster(prev => {
+                const m = new Map(prev);
+                const king = m.get(from);
+                if (king) { m.delete(from); m.set(to, king); }
+                const rook = m.get(rookFrom);
+                if (rook) { m.delete(rookFrom); m.set(rookTo, rook); }
+                return m;
+              });
               refreshStatus(); setTimeout(maybeEngineTurn, 0); return;
             }
             // Promotion reskin
@@ -676,8 +699,22 @@
 
           // C) Overpower: attacker power > defender power
           if (defenderState && attackerPower > defenderPower) {
-            setRoster(prev => { const m = new Map(prev); let boosted = { ...(m.get(from) || moverState) }; const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + 1); boosted.formIdx = newLevel; boosted = bumpMaxForm(boosted, newLevel); boosted.kills = (boosted.kills || 0) + 1; boosted.life = (boosted.life || 0) + 1; m.delete(from); m.set(to, boosted); if (attempted.flags.includes('e')) m.delete(defenderSquare); return m; });
-            recordCaptureGlyph(attempted); flashNotice('Overpower! (+1)'); refreshStatus(); maybeEngineTurn(); return;
+            setRoster(prev => {
+              const m = new Map(prev);
+              let boosted = { ...(m.get(from) || moverState) };
+              const newLevel = Math.min(boosted.forms.length - 1, (boosted.formIdx ?? 0) + 1);
+              boosted.formIdx = newLevel;
+              boosted = bumpMaxForm(boosted, newLevel);
+              boosted.kills = (boosted.kills || 0) + 1;
+              boosted.life = (boosted.life || 0) + 1;
+              m.delete(from);
+              m.set(to, boosted);
+              if (attempted.flags.includes('e') || isEnPassant) m.delete(defenderSquare);
+              return m;
+            });
+            recordCaptureGlyph(attempted);
+            flashNotice(attempted.flags.includes('e') || isEnPassant ? 'En Passant Overpower!' : 'Overpower! (+1)');
+            refreshStatus(); maybeEngineTurn(); return;
           }
 
           // D) Defender soaks the hit if it has lives and power >= attacker's power
@@ -687,13 +724,14 @@
               const curr = m.get(defenderSquare);
               if (!curr) return prev;
               const nextForm = Math.max(0, (curr.formIdx ?? 0) - 1);
-              const nextLives = Math.max(0, (curr.life ?? 0) - 1); // <<< lose a life on hit
+              const nextLives = Math.max(0, (curr.life ?? 0) - 1);
               m.set(defenderSquare, { ...curr, formIdx: nextForm, life: nextLives });
               return m;
             });
 
-            const before = game.fen(); // safer than fenBefore.current for engine
-            const toggledFen = toggleTurnFen(beforeFEN, attempted.color); // use pre-move FEN
+            // If it's a hit, we MUST not consume the turn's move count or EP/Castle rights
+            // but we still want the turn to pass. Toggle turn manually on the PREVIOUS FEN.
+            const toggledFen = toggleTurnFen(beforeFEN, attempted.color);
             setGame(new Chess(toggledFen));
 
             flashNotice('Hit absorbed! Defender life-1, level ↓');
@@ -723,7 +761,7 @@
 
             m.delete(from);
             m.set(to, boosted);
-            if (attempted.flags.includes('e')) m.delete(defenderSquare);
+            if (attempted.flags.includes('e') || isEnPassant) m.delete(defenderSquare);
             return m;
           });
 
@@ -731,51 +769,48 @@
         }
 
         function dbzOutcomeForAttempt(game, roster, from, to, promotion) {
-          // Copy what you compute in doMove:
           const attempted = game.move({ from, to, promotion: promotion || 'q' });
-          if (!attempted) return { kind: 'illegal' }; // not even chess-legal
+          if (!attempted) return { kind: 'illegal' };
           game.undo();
 
           const attacker = roster.get(from);
-          const targetSq = attempted.flags.includes('e')
+          // Pre-check for en passant
+          const p = game.get(from);
+          const isEnPassant = p && p.type === 'p' && from[0] !== to[0] && !game.get(to);
+
+          const targetSq = (attempted.flags.includes('e') || isEnPassant)
             ? (attempted.color === 'w' ? to[0] + (parseInt(to[1]) - 1) : to[0] + (parseInt(to[1]) + 1))
             : to;
           const defender = roster.get(targetSq);
 
-          // While-in-check constraints (mirror your filter for engine too)
-          const checkingSquares = attackersOfKing(game.get(from)?.color);
+          const checkingSquares = attackersOfKing(attempted.color === 'w' ? 'w' : 'b'); // This logic was reversed in previous version
           if (checkingSquares.size > 0) {
-            // A) King cannot capture a checker with lives > 0
-            if (game.get(from)?.type === 'k' && checkingSquares.has(to) && (LIVES_OF(defender) > 0)) {
+            if (p && p.type === 'k' && checkingSquares.has(to) && (LIVES_OF(defender) > 0)) {
               return { kind: 'illegal' };
             }
-            // B) Only piece with more lives than checker may capture that checker
-            if (attempted.flags.includes('c') && checkingSquares.has(to)) {
+            if (attempted.captured && checkingSquares.has(targetSq)) {
               if (!((LIVES_OF(attacker) || 0) > (LIVES_OF(defender) || 0))) {
                 return { kind: 'illegal' };
               }
             }
           }
 
-          if (!attempted.captured && !attempted.flags.includes('e')) {
+          if (!attempted.captured && !attempted.flags.includes('e') && !isEnPassant) {
             return { kind: 'quiet' };
           }
 
-          // Capture path — compare powers correctly
           const attackerPower = POWER_OF(attacker);
           const defenderPower = POWER_OF(defender);
           const defenderLives = LIVES_OF(defender);
 
           if (attackerPower > defenderPower) {
-            return { kind: 'capture_overpower' }; // C
+            return { kind: 'capture_overpower' };
           }
 
-          // D) defender soaks the hit if it has lives and is >= attacker's power
           if (defender && defenderLives > 0 && defenderPower >= attackerPower) {
             return { kind: 'hit_no_capture' };
           }
 
-          // E) normal capture (base or no lives, or weaker defender)
           return { kind: 'capture_normal', isPromotion: !!attempted.promotion, prom: attempted.promotion };
         }
 
@@ -837,23 +872,25 @@
           const uci = pendingBest.current; if (!uci || game.isGameOver()) return;
           const from = uci.slice(0, 2), to = uci.slice(2, 4), prom = uci[4];
 
-          // Check *DBZ* legality & outcome before applying:
           const out = dbzOutcomeForAttempt(game, roster, from, to, prom);
           if (out.kind === 'illegal') {
-            logEngine('WRN', `Engine suggested illegal DBZ move: ${uci}. Retrying...`);
+            logEngine('WRN', `Engine suggested illegal DBZ move: ${uci}. Forcing search update...`);
             setEngineThinks(false);
             pendingBest.current = null;
-            // Add a small delay then try again to give engine a chance to find another move
-            setTimeout(enginePositionAndGo, 200);
+            // Prevent search from getting stuck by slightly clearing engine's state if possible
+            post('stop');
+            setTimeout(enginePositionAndGo, 100);
             return;
           }
 
-          // Apply move with your existing doMove logic; it already handles C/D/E visuals.
           doMove(from, to, prom);
           pendingBest.current = null;
 
           const aivai = aiWhite && aiBlack;
-          if (aivai && !game.isGameOver()) setTimeout(enginePositionAndGo, 50);
+          if (aivai && !game.isGameOver()) {
+            // Small delay for AI vs AI to prevent stack overflow or flickering
+            setTimeout(enginePositionAndGo, 250);
+          }
         }
 
         function maybeEngineTurn() { if (!isAiTurn()) return; if (!engineRef.current) { bootEngine(); return; } if (!engineReady) return; if (!engineThinks) enginePositionAndGo(); }
@@ -1047,7 +1084,18 @@
                       <>
                         <div className="team-ring" />
                         <div className="piece-layer">
-                          <img className="piece-img" draggable="false" src={spriteUrl(dbz.char, dbz.forms[dbz.formIdx])} onError={(e) => { e.currentTarget.style.display = 'none'; }} alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`} />
+                          <img className="piece-img" draggable="false"
+                            src={spriteUrl(dbz.char, dbz.forms[dbz.formIdx])}
+                            onError={(e) => {
+                              const fallback = spriteUrl(dbz.char, 'base');
+                              if (e.currentTarget.src !== fallback) {
+                                e.currentTarget.src = fallback;
+                              } else {
+                                e.currentTarget.style.display = 'none';
+                              }
+                            }}
+                            alt={`${dbz.char} ${dbz.forms[dbz.formIdx]}`}
+                          />
                         </div>
                         <div className="piece-badge">{dbz.forms[dbz.formIdx]} · ❤{dbz.life}</div>
                       </>
