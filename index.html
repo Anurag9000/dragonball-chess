@@ -434,7 +434,7 @@
   <div id="root" class="min-h-full flex items-center justify-center p-4"></div>
 
   <!-- App -->
-  <script type="text/babel" data-presets="env,react">
+  <script type="text/babel-source" id="app-jsx-source">
     window.bootDBZ = function () {
       if (!window.Chess) { __log('bootDBZ called but Chess missing'); }
       if (!window.React || !window.ReactDOM) { __log('React/ReactDOM missing'); }
@@ -1511,16 +1511,52 @@
     }
   </script>
 
-  <!-- ES Module loader for chess.js (single source of truth) -->
+  <!-- Explicit Babel bootstrap: transform JSX ourselves so we don't rely on Babel's unreliable auto-discovery -->
+
   <script>
-      // Simple boot
-      (function check() {
-        if (window.Chess && typeof window.bootDBZ === 'function') {
-          window.bootDBZ();
-        } else {
-          setTimeout(check, 50);
+    document.addEventListener('DOMContentLoaded', function () {
+      __log('Compiling JSX…');
+
+      var timeoutId = setTimeout(function () {
+        __log('ERROR: Compile timed out after 30s');
+        document.getElementById('root').innerHTML =
+          '<div style="color:#f87171;padding:32px;font-family:sans-serif;">' +
+          '<b>Failed to start:</b> Babel transform timed out.<br>' +
+          '<small>Try a hard-refresh (Ctrl+Shift+R) or open locally.</small></div>';
+      }, 30000);
+
+      try {
+        if (!window.Babel || !window.Babel.transform) {
+          throw new Error('Babel not loaded');
         }
-      })();
+
+        var src = document.getElementById('app-jsx-source').textContent;
+        var out = window.Babel.transform(src, { presets: ['env', 'react'] }).code;
+
+        var s = document.createElement('script');
+        s.textContent = out;
+        document.head.appendChild(s);
+        clearTimeout(timeoutId);
+        __log('Compile OK — waiting for boot…');
+
+        // Now wait for bootDBZ (defined by the injected script)
+        (function check() {
+          if (window.Chess && typeof window.bootDBZ === 'function') {
+            window.bootDBZ();
+          } else {
+            setTimeout(check, 50);
+          }
+        })();
+
+      } catch (e) {
+        clearTimeout(timeoutId);
+        __log('ERROR: ' + (e.message || e));
+        document.getElementById('root').innerHTML =
+          '<div style="color:#f87171;padding:32px;font-family:sans-serif;">' +
+          '<b>Failed to start:</b> ' + (e.message || e) + '<br>' +
+          '<small>Check the browser console for details.</small></div>';
+      }
+    });
   </script>
 
   <script> __log('Booting…'); </script>
