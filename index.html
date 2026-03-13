@@ -1541,10 +1541,16 @@
 
         // Now wait for bootDBZ (defined by the injected script)
         (function check() {
-          if (window.Chess && typeof window.bootDBZ === 'function') {
+          var hasChess = !!window.Chess;
+          var hasBoot = typeof window.bootDBZ === 'function';
+          
+          if (hasChess && hasBoot) {
             window.bootDBZ();
           } else {
-            setTimeout(check, 50);
+            if (!hasChess && !hasBoot) __log('waiting for Chess & bootDBZ…');
+            else if (!hasChess) __log('waiting for window.Chess…');
+            else if (!hasBoot) __log('waiting for window.bootDBZ…');
+            setTimeout(check, 100);
           }
         })();
 
