@@ -827,10 +827,10 @@
         }, [game.fen(), aiWhite, aiBlack]);
 
         function refreshStatus() {
-          if (game.isGameOver()) {
-            if (game.isCheckmate()) setStatus(`Checkmate — ${game.turn() === 'w' ? 'Black' : 'White'} wins`);
-            else if (game.isStalemate()) setStatus('Stalemate');
-            else if (game.isDraw()) setStatus('Draw');
+          if (game.game_over()) {
+            if (game.in_checkmate()) setStatus(`Checkmate — ${game.turn() === 'w' ? 'Black' : 'White'} wins`);
+            else if (game.in_stalemate()) setStatus('Stalemate');
+            else if (game.in_draw()) setStatus('Draw');
             else setStatus('Game over');
             try { post('stop'); } catch (_) { }
             try { engineRef.current?.terminate?.(); } catch (_) { }
@@ -840,7 +840,7 @@
             return;
           }
           const t = game.turn() === 'w' ? 'White' : 'Black';
-          const flags = [game.isCheck() ? 'Check' : null].filter(Boolean).join(' • ');
+          const flags = [game.in_check() ? 'Check' : null].filter(Boolean).join(' • ');
           setStatus(`${t} to move${flags ? ' — ' + flags : ''}`);
         }
 
@@ -979,7 +979,7 @@
           const res = [];
           const color = game.get(fromSq)?.type === 'k' ? (game.get(fromSq).color) : (game.turn());
           const checkingSquares = attackersOfKing(game, color); // Updated
-          const inCheck = game.isCheck();
+          const inCheck = game.in_check();
 
           for (const m of baseMoves) {
             const targetSq = getDefenderSquare(m);
@@ -1046,7 +1046,7 @@
               refreshStatus();
               // Use queueMicrotask for better async handling
               queueMicrotask(() => {
-                if (!engineThinks && !game.isGameOver()) {
+                if (!engineThinks && !game.game_over()) {
                   maybeEngineTurn();
                 }
               });
@@ -1284,7 +1284,7 @@
 
         function applyBestMove() {
           const uci = pendingBest.current;
-          if (!uci || game.isGameOver()) return;
+          if (!uci || game.game_over()) return;
           // Validate UCI format
           if (uci.length < 4 || uci.length > 5) {
             logEngine('ERR', `Invalid UCI format: ${uci}`);
@@ -1307,7 +1307,7 @@
           pendingBest.current = null;
 
           const aivai = aiWhite && aiBlack;
-          if (aivai && !game.isGameOver()) {
+          if (aivai && !game.game_over()) {
             // Small delay for AI vs AI to prevent stack overflow or flickering
             setTimeout(enginePositionAndGo, 250);
           }
@@ -1456,8 +1456,8 @@
               <Panel title="Turn / State">
                 <div className="text-sm leading-relaxed">
                   <div><b>Side:</b> {game.turn() === 'w' ? 'White' : 'Black'}</div>
-                  <div><b>Check:</b> {game.isCheck() ? 'Yes' : 'No'}</div>
-                  <div><b>Stalemate:</b> {game.isStalemate() ? 'Yes' : 'No'}</div>
+                  <div><b>Check:</b> {game.in_check() ? 'Yes' : 'No'}</div>
+                  <div><b>Stalemate:</b> {game.in_stalemate() ? 'Yes' : 'No'}</div>
                   <div><b>Castling Rights:</b> <code className="text-xs">{game.fen().split(' ')[2]}</code></div>
                   <div><b>En Passant:</b> <code className="text-xs">{game.fen().split(' ')[3]}</code></div>
                 </div>
